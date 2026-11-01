@@ -1,0 +1,9 @@
+{
+  "name": "monopoli-wijaya-mabar-server",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Room lobby with 4 seats and computer fill",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}
