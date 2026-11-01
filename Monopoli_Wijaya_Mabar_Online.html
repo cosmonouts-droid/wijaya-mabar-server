@@ -2132,7 +2132,7 @@ document.addEventListener("pointerdown", function(event) {
 <div id="mabarModal" role="dialog" aria-modal="true" aria-labelledby="mabarTitle">
  <div class="mabar-card">
   <h2 id="mabarTitle">🌐 MABAR ONLINE WIJAYA</h2>
-  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 peserta. Host dapat menambahkan 1–3 bot. Setelah mulai, server mengendalikan seluruh giliran dan permainan tetap berjalan tanpa Host.</p>
+  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 peserta. Host dapat menambahkan bot dan memilih tingkat kesulitannya. Jika semua pemain manusia keluar, permainan langsung berakhir dan Room baru wajib dibuat.</p>
   <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" value="" placeholder="wss://alamat-server-anda" autocomplete="url">
   <label>Nama pemain</label><input id="mabarName" class="mabar-field" maxlength="18" placeholder="Nama kamu">
   <div class="mabar-actions"><button id="mabarCreate" class="mabar-primary">BUAT ROOM</button><button id="mabarJoin" class="mabar-secondary">GABUNG ROOM</button></div>
@@ -2140,6 +2140,7 @@ document.addEventListener("pointerdown", function(event) {
   <div class="mabar-actions"><button id="mabarSpectate" class="mabar-secondary">MASUK SEBAGAI PENONTON</button><button id="mabarReady" class="mabar-primary" disabled>SIAP</button></div>
   <div id="mabarStatus" class="mabar-status">Belum terhubung. Masukkan alamat server online untuk memulai.</div>
   <div id="mabarRoster"></div>
+  <label for="mabarBotDifficulty" class="mabar-small" style="display:block;margin:10px 0 4px;font-weight:bold">🤖 Tingkat kesulitan Bot</label><select id="mabarBotDifficulty" class="mabar-field"><option value="easy">Easy — santai</option><option value="medium" selected>Medium — seimbang</option><option value="hard">Hard — pintar</option><option value="veryhard">Very Hard — sangat kuat</option></select>
   <div class="mabar-actions" style="margin-top:8px"><button id="mabarAddBot" class="mabar-secondary" disabled>🤖 TAMBAH BOT</button><button id="mabarStart" class="mabar-primary" disabled>MULAI PERMAINAN</button></div>
   <div class="mabar-actions"><button id="mabarClose" class="mabar-secondary" style="grid-column:1/-1">TUTUP</button></div>
   <p class="mabar-small">Saat Host memulai, semua pemain yang terhubung otomatis masuk ke papan bersama. Giliran pemain dikendalikan dari perangkat masing-masing; bot berjalan otomatis. Server harus tetap online.</p>
@@ -2181,18 +2182,18 @@ document.addEventListener("pointerdown", function(event) {
    lastRevision=Number(m.revision)||lastRevision;
    mabarNetworkMode=true;mabarNetworkHost=false;
    window.WijayaMabarGame.applyState(m.state);
-   const turn=m.turn;if(turn)say('Room '+(room?.code||'')+' • Giliran: '+turn.playerName+(turn.isBot?' (Bot)':''));return;
+   const turn=m.turn;if(m.state?.gameOver)say('Permainan berakhir. Semua pemain manusia telah keluar atau permainan telah selesai. Buat Room baru untuk bermain kembali.');else if(turn)say('Room '+(room?.code||'')+' • Giliran: '+turn.playerName+(turn.isBot?' (Bot)':''));return;
   }
   if(m.type==='bot_added'){say(m.message||'Bot berhasil ditambahkan dan siap.');return;}
   if(m.type==='info'){say(m.message||'Informasi dari server.');return;}
   if(m.type==='game_event')say('Pembaruan permainan diterima dari server.');
  }
- function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://).');return;}if(!name){say('Masukkan nama pemain terlebih dahulu.');return;}try{ws=new WebSocket(url);}catch(e){say('Alamat server tidak valid.');return;}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.replace(/\D/g,'').slice(0,4),resumeToken:action==='join_room'?localStorage.getItem('wijaya-resume-'+$('mabarCode').value.replace(/\D/g,'').slice(0,4)):null});};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{return;}handleMessage(m);};ws.onclose=()=>{say('Koneksi terputus. Jika Host terputus, pengendali otomatis dipindahkan ke pemain manusia lain yang masih tersambung.');$('mabarReady').disabled=true;$('mabarStart').disabled=true;};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
+ function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://).');return;}if(!name){say('Masukkan nama pemain terlebih dahulu.');return;}try{ws=new WebSocket(url);}catch(e){say('Alamat server tidak valid.');return;}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.replace(/\D/g,'').slice(0,4),resumeToken:action==='join_room'?localStorage.getItem('wijaya-resume-'+$('mabarCode').value.replace(/\D/g,'').slice(0,4)):null});};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{return;}handleMessage(m);};ws.onclose=()=>{say('Koneksi terputus. Jika semua pemain manusia keluar, permainan berakhir dan harus membuat Room baru.');$('mabarReady').disabled=true;$('mabarStart').disabled=true;};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
  $('mabarCode').addEventListener('input',()=>{$('mabarCode').value=$('mabarCode').value.replace(/\D/g,'').slice(0,4);});
  $('openMabar').addEventListener('click',()=>modal.classList.add('open'));$('mabarClose').addEventListener('click',()=>modal.classList.remove('open'));
  $('mabarCreate').addEventListener('click',()=>{role='host';connect('create_room');});$('mabarJoin').addEventListener('click',()=>{role='player';connect('join_room');});$('mabarSpectate').addEventListener('click',()=>{role='spectator';connect('spectate_room');});
  $('mabarReady').addEventListener('click',()=>{if(role==='host'||role==='spectator')return;ready=!ready;send('set_ready',{ready});$('mabarReady').textContent=ready?'BATAL SIAP':'SIAP';});
- $('mabarAddBot').addEventListener('click',()=>send('add_bot'));$('mabarStart').addEventListener('click',()=>send('start_game'));
+ $('mabarAddBot').addEventListener('click',()=>send('add_bot',{difficulty:$('mabarBotDifficulty').value}));$('mabarStart').addEventListener('click',()=>send('start_game'));
  window.WijayaMabar={send,requestAction,publishState,connected:()=>!!ws&&ws.readyState===WebSocket.OPEN,getRoom:()=>room};
 })();
 </script>

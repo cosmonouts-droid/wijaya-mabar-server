@@ -215,7 +215,7 @@ function moveAndLand(g, seat, steps, fromFree=false) {
     const owner=ownerOf(g,i);
     if(owner===-1) {
       addLog(g,`${t.name} belum dimiliki. Harga beli Rp${t.price.toLocaleString('id-ID')}.`);
-      if(p.isBot && p.cash>t.price+80_000) {
+      if(p.isBot) { /* Pembelian bot diputuskan oleh botPlay sesuai tingkat kesulitan. */
         p.cash-=t.price;p.owned.push(i);addLog(g,`${p.name} membeli ${t.name}.`);
       }
     } else if(owner!==seat) {
@@ -257,7 +257,7 @@ function publicPlayer(p) {
   return {id:p.id,name:p.name,ready:!!p.ready,host:!!p.host,connected:!!p.connected,isBot:!!p.isBot,seatIndex:p.seatIndex};
 }
 function roomSnapshot(r) {
-  return {code:r.code,started:r.started,players:r.players.slice().sort((a,b)=>a.seatIndex-b.seatIndex).map(publicPlayer),
+  return {code:r.code,started:r.started,aiDifficulty:r.aiDifficulty||'medium',players:r.players.slice().sort((a,b)=>a.seatIndex-b.seatIndex).map(publicPlayer),
     spectators:(r.spectators||[]).map(s=>({id:s.id,name:s.name,kind:'Penonton'})),
     botCount:r.players.filter(p=>p.isBot).length,maxSeats:4,current:r.gameState?.current??0};
 }
@@ -369,6 +369,8 @@ function botFinishTurn(r) {
 }
 function botPlay(r) {
   const g=r.gameState;if(!g||g.gameOver)return;
+  const difficulty=g.aiDifficulty||r.aiDifficulty||'medium';
+  const ai={easy:{buy:0.35,upgrade:0.12,reserve:180000},medium:{buy:0.7,upgrade:0.3,reserve:90000},hard:{buy:0.92,upgrade:0.65,reserve:35000},veryhard:{buy:1,upgrade:0.92,reserve:10000}}[difficulty]||{buy:0.7,upgrade:0.3,reserve:90000};
   const p=g.players[g.current];if(!p||!p.isBot)return;
   if(g.rolled) { botFinishTurn(r); return; }
   if(!g.rolled) {
@@ -380,11 +382,11 @@ function botPlay(r) {
     } else {g.rolled=true;moveAndLand(g,g.current,total);}
     if(!g.gameOver&&g.rolled) {
       const i=g.landedIndex,t=TILES[i];
-      if(['street','rail','utility'].includes(t.type)&&ownerOf(g,i)===-1&&p.cash>t.price+80_000) {
+      if(['street','rail','utility'].includes(t.type)&&ownerOf(g,i)===-1&&p.cash>t.price+ai.reserve&&Math.random()<ai.buy) {
         p.cash-=t.price;p.owned.push(i);addLog(g,`${p.name} membeli ${t.name}.`);
       }
       const own=p.owned.find(x=>['street','utility'].includes(TILES[x].type)&&(g.tiles[x].stars||0)<maxStars(TILES[x]));
-      if(own!==undefined&&p.cash>upgradeCost(g,own)+100_000&&Math.random()<0.3) {
+      if(own!==undefined&&p.cash>upgradeCost(g,own)+ai.reserve&&Math.random()<ai.upgrade) {
         const cost=upgradeCost(g,own);p.cash-=cost;g.tiles[own].stars++;g.upgradeUsedThisTurn=true;
         addLog(g,`${p.name} meningkatkan ${TILES[own].name} menjadi ${g.tiles[own].stars} bintang.`);
       }
@@ -397,7 +399,7 @@ function botPlay(r) {
   }
 }
 function makeRoom(code,host) {
-  const r={code,hostId:host.id,players:[host],spectators:[],started:false,gameState:null,revision:0,createdAt:Date.now(),turnTimer:null};
+  const r={code,hostId:host.id,players:[host],spectators:[],started:false,gameState:null,revision:0,createdAt:Date.now(),turnTimer:null,aiDifficulty:'medium'};
   rooms.set(code,r);return r;
 }
 function bindPlayer(ws,r,p,role) {
@@ -411,8 +413,15 @@ function cleanSocket(ws) {
   const p=r.players.find(x=>x.id===c.id);
   if(p&&p.ws===ws){p.ws=null;p.connected=false;
     if(r.started&&!p.isBot){p.wasHumanName=p.name;p.isBot=true;p.name='Bot '+(p.seatIndex+1);if(r.gameState){const gp=r.gameState.players[p.seatIndex];gp.name=p.name;gp.isBot=true;gp.isRemoteHuman=false;addLog(r.gameState,`${p.wasHumanName} terputus; bot mengambil alih kursinya.`);}}
-    saveAll();if(r.started){emitState(r);if(r.players.every(x=>x.isBot))scheduleTurn(r);}
-    else broadcast(r,{type:'room_update',room:roomSnapshot(r)});
+    if(r.started){
+      const humansStillHere=r.players.some(x=>!x.isBot&&x.connected);
+      if(!humansStillHere&&!r.gameState.gameOver){
+        r.gameState.gameOver=true;
+        addLog(r.gameState,'🏁 Semua pemain manusia telah meninggalkan permainan. Permainan berakhir; buat Room baru untuk bermain kembali.');
+      }
+      emitState(r);
+    } else broadcast(r,{type:'room_update',room:roomSnapshot(r)});
+    saveAll();
   }
 }
 function actionError(ws,msg){send(ws,{type:'error',message:msg});}
@@ -432,7 +441,9 @@ function startGame(r) {
   r.players.forEach(p=>{p.ready=true;});
   r.started=true;r.revision=0;
   r.gameState=initialState(r.players.map(p=>({id:p.id,name:p.name,isBot:p.isBot,seatIndex:p.seatIndex,connected:p.connected})));
-  addLog(r.gameState,'Server menjadi pengendali utama permainan. Host tidak diperlukan setelah mulai.');
+  r.gameState.aiDifficulty=r.aiDifficulty||'medium';
+  addLog(r.gameState,`Tingkat kesulitan Bot: ${String(r.gameState.aiDifficulty).toUpperCase()}.`);
+  addLog(r.gameState,'Server menjadi pengendali utama permainan.');
   return null;
 }
 
@@ -442,7 +453,7 @@ const server=http.createServer((req,res)=>{
   const u=new URL(req.url,'http://localhost');
   if(req.method==='GET'&&u.pathname==='/health'){
     res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
-    return res.end(JSON.stringify({service:'Monopoli Wijaya',status:'online',protocolVersion:'4.1.0',
+    return res.end(JSON.stringify({service:'Monopoli Wijaya',status:'online',protocolVersion:'4.2.0',
       authority:'server',persistentRooms:true,hostIndependent:true,botsContinueWithoutHumans:true,features:['server_dice','server_movement','server_economy','server_bot_ai','room_persistence','reconnect','turn_timer','orphan_bot_autoplay','special_cards','special_dice','disasters','debt_liquidation']}));
   }
   if(req.method==='GET'&&(u.pathname==='/'||u.pathname==='/Monopoli_Wijaya_Mabar_Online.html')){
@@ -476,7 +487,7 @@ wss.on('connection',ws=>{
         if(r.started)send(ws,stateMessage(r));else broadcast(r,{type:'room_update',room:roomSnapshot(r)});
         saveAll();return;
       }
-      if(r.started)return actionError(ws,'Permainan sudah dimulai. Gunakan perangkat yang pernah bergabung untuk masuk kembali.');
+      if(r.started)return actionError(ws,r.gameState?.gameOver?'Permainan telah berakhir. Silakan buat Room baru.':'Permainan sudah dimulai. Gunakan perangkat yang pernah bergabung untuk masuk kembali.');
       const humans=r.players.filter(x=>!x.isBot).length;if(humans>=4)return actionError(ws,'Slot pemain manusia penuh.');
       const used=new Set(r.players.map(x=>x.seatIndex));let seat=0;while(used.has(seat)&&seat<4)seat++;
       if(seat>=4)return actionError(ws,'Room penuh.');
@@ -500,6 +511,8 @@ wss.on('connection',ws=>{
       if(r.players.filter(x=>x.isBot).length>=MAX_BOTS||r.players.length>=4)return actionError(ws,'Maksimal 3 bot dan 4 peserta.');
       const used=new Set(r.players.map(x=>x.seatIndex));let seat=0;while(used.has(seat)&&seat<4)seat++;
       const n=r.players.filter(x=>x.isBot).length+1;
+      const difficulty=['easy','medium','hard','veryhard'].includes(m.difficulty)?m.difficulty:'medium';
+      r.aiDifficulty=difficulty;
       r.players.push({id:'bot-'+uid(),name:'Bot '+n,ready:true,host:false,connected:false,ws:null,isBot:true,seatIndex:seat,resumeToken:null});
       broadcast(r,{type:'room_update',room:roomSnapshot(r)});send(ws,{type:'bot_added',message:`Bot ${n} ditambahkan dan langsung siap.`});saveAll();return;
     }
@@ -630,4 +643,4 @@ function moveLandAt(g,seat,i) {
   else if(t.type==='free')p.freeMove=true;
   checkVictory(g);
 }
-server.listen(PORT,()=>{console.log(`Monopoli Wijaya server-authoritative v4.1.0 aktif di port ${PORT}`);for(const r of rooms.values())if(r.started)scheduleTurn(r);});
+server.listen(PORT,()=>{console.log(`Monopoli Wijaya server-authoritative v4.2.0 aktif di port ${PORT}`);for(const r of rooms.values())if(r.started)scheduleTurn(r);});
