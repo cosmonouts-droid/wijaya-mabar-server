@@ -13,7 +13,7 @@ const GAME_FILE = path.join(__dirname, 'Monopoli_Wijaya_Mabar_Online.html');
 const rooms = new Map();
 const clients = new Map();
 
-const code = () => 'WIJAYA-' + crypto.randomInt(1000, 10000);
+const code = () => String(crypto.randomInt(1000, 10000));
 const id = () => crypto.randomUUID();
 
 const send = (ws, obj) => {
@@ -39,6 +39,7 @@ function snapshot(r) {
     started: r.started,
     humanTarget: r.humanTarget,
     botCount: r.players.filter(p => p.isBot).length,
+    readyCount: r.players.filter(p => !p.isBot && p.ready && p.connected).length,
     players: r.players.map(publicPerson)
   };
 }
@@ -261,6 +262,7 @@ wss.on('connection', ws => {
       send(ws, {
         type: 'room',
         role: 'host',
+        playerId: player.id,
         room: snapshot(r)
       });
 
@@ -270,7 +272,7 @@ wss.on('connection', ws => {
     if (m.type === 'join_room') {
       if (c) return;
 
-      const roomCode = String(m.code || '').trim().toUpperCase();
+      const roomCode = String(m.code || '').replace(/\D/g, '').slice(0, 4);
       const r = rooms.get(roomCode);
 
       if (!r) {
@@ -317,6 +319,7 @@ wss.on('connection', ws => {
       send(ws, {
         type: 'room',
         role: 'player',
+        playerId: person.id,
         room: snapshot(r)
       });
 
@@ -358,22 +361,38 @@ wss.on('connection', ws => {
     });
   }
 
-  const humans = r.players.filter(x => !x.isBot);
+  const allHumans = r.players.filter(x => !x.isBot && x.connected);
+  const humans = allHumans.filter(x => x.ready);
+  const host = allHumans.find(x => x.id === r.hostId);
 
-  if (r.started || humans.length < 1 || humans.length > 4) {
+  if (r.started || !host || !host.ready || humans.length < 2 || humans.length > 3) {
     return send(ws, {
       type: 'error',
-      message: 'Room tidak dapat dimulai.'
+      message: 'Permainan dapat dimulai jika Host dan minimal 1 pemain lain siap (total 2–3 pemain siap).'
     });
   }
 
-  // Isi semua kursi kosong dengan komputer
+  // Pemain yang belum siap dikeluarkan dari sesi; kursinya digantikan bot.
+  for (const person of allHumans) {
+    if (person.ready) continue;
+    send(person.ws, {
+      type: 'info',
+      message: 'Permainan dimulai tanpa kamu karena belum menekan SIAP. Silakan gabung kembali di Room baru.'
+    });
+    if (person.ws) {
+      clients.delete(person.ws);
+      try { person.ws.close(); } catch {}
+    }
+  }
+  r.players = humans.slice();
+
+  // Isi kursi kosong sampai total tepat 4 pemain.
   const botCount = 4 - humans.length;
 
   for (let i = 0; i < botCount; i++) {
     r.players.push({
       id: 'bot-' + id(),
-      name: 'Komputer ' + (i + 1),
+      name: 'Bot ' + (i + 1),
       ready: true,
       host: false,
       connected: false,
