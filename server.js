@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
       service: 'Monopoli Wijaya Mabar',
       status: 'online',
       multiplayerMode: 'shared-state-controller-failover',
-      protocolVersion: '3.0.0',
+      protocolVersion: '3.1.0',
       features: ['add_bot', 'room_update', 'game_state', 'player_action', 'controller_failover'],
       maxSeats: 4,
       maxBots: 3,

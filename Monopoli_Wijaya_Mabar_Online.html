@@ -1973,7 +1973,7 @@ function mabarSetupGame(roomPlayers, seat, isHost){
  const sorted=(roomPlayers||[]).slice().sort((a,b)=>a.seatIndex-b.seatIndex);
  players=base.map((p,i)=>{
   const meta=sorted[i]||{};
-  return {...p,name:meta.name||p.name,networkId:meta.id||null,isBot:!!meta.isBot,isRemoteHuman:!meta.isBot&&i!==0};
+  return {...p,name:meta.name||p.name,networkId:meta.id||null,isBot:!!meta.isBot,isRemoteHuman:!meta.isBot&&i!==mabarMySeat};
  });
  current=0;rolled=false;busy=false;gameOver=false;selected=null;landedIndex=null;
  buildBoard();render();say("Room multiplayer aktif. Semua pemain berbagi satu papan. Giliran pertama: "+players[0].name+".");saveGame(false);
@@ -2119,12 +2119,12 @@ document.addEventListener("pointerdown", function(event) {
   <div id="mabarRoster"></div>
   <div class="mabar-actions" style="margin-top:8px"><button id="mabarAddBot" class="mabar-secondary" disabled>🤖 TAMBAH BOT</button><button id="mabarStart" class="mabar-primary" disabled>MULAI PERMAINAN</button></div>
   <div class="mabar-actions"><button id="mabarClose" class="mabar-secondary" style="grid-column:1/-1">TUTUP</button></div>
-  <p class="mabar-small">Batas giliran: 60 detik. Jika koneksi Host terputus, aksi permainan berhenti sampai Host tersambung kembali. Server harus tetap online.</p>
+  <p class="mabar-small">Saat Host memulai, semua pemain yang terhubung otomatis masuk ke papan bersama. Giliran pemain dikendalikan dari perangkat masing-masing; bot berjalan otomatis. Server harus tetap online.</p>
  </div>
 </div>
 <script>
 (function(){
- const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false;
+ const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false,lastRevision=0;
  const modal=$('mabarModal'),status=$('mabarStatus'),roster=$('mabarRoster');
  // Gunakan host/domain halaman ini agar tombol lobi tidak tersambung ke server lama.
  if(!$('mabarServer').value.trim()) $('mabarServer').value=(location.protocol==='https:'?'wss://':'ws://')+location.host;
@@ -2142,10 +2142,17 @@ document.addEventListener("pointerdown", function(event) {
    $('mabarReady').disabled=role==='spectator'||role==='host'||room.started;$('mabarReady').textContent=role==='host'?'HOST SIAP':(ready?'BATAL SIAP':'SIAP');updateStart(room);return;
   }
   if(m.type==='game_started'){
-   room.started=true;modal.classList.remove('open');mabarNetworkMode=true;mabarNetworkHost=!!isHost;lastRevision=0;
-   const mine=(m.players||[]).find(p=>p.id===playerId);mySeat=mine?mine.seatIndex:(role==='spectator'?-1:0);
-   if(isHost){window.WijayaMabarGame.setup(m.players,0,true);say('Permainan dimulai. Papan bersama aktif.');}
-   else {say('Permainan dimulai. Menunggu sinkronisasi papan...');}
+   room={...(room||{}),started:true,players:m.players||room?.players||[]};
+   modal.classList.remove('open');
+   mabarNetworkMode=true;
+   mabarNetworkHost=!!isHost;
+   lastRevision=0;
+   const mine=(m.players||[]).find(p=>p.id===playerId);
+   mySeat=mine?Number(mine.seatIndex):(role==='spectator'?-1:0);
+   // Semua perangkat wajib masuk ke papan yang sama; hanya pengendali yang
+   // menjalankan logika permainan dan meneruskan aksi ke server.
+   window.WijayaMabarGame.setup(m.players||[],mySeat,!!isHost);
+   say(isHost?'Permainan dimulai. Papan bersama aktif.':'Permainan dimulai. Papan bersama aktif. Menunggu giliran kamu.');
    return;
   }
   if(m.type==='host_action'){
