@@ -1,9 +1,13 @@
 {
-  "name": "monopoli-wijaya-mabar-server",
-  "version": "0.2.0",
+  "name": "monopoli-wijaya-mabar",
+  "version": "2.0.0",
   "private": true,
-  "description": "Room lobby with 4 seats and computer fill",
+  "description": "Monopoli Wijaya real-time multiplayer server",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "ws": "^8.18.0" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
 }

@@ -284,6 +284,7 @@ const musicThemes={
 let musicTheme='city';
 let gamePaused=false, pausedAt=null;
 function pauseGame(){
+ if(mabarNetworkMode&&!mabarNetworkHost){say("Hanya Host yang dapat pause permainan bersama.");return;}
  if(gamePaused)return;if(busy){say("Tunggu sampai animasi dan pergerakan selesai sebelum pause.");return;}
  gamePaused=true;
  const overlay=document.getElementById("pauseOverlay");if(overlay)overlay.classList.add("show");
@@ -291,12 +292,13 @@ function pauseGame(){
  saveGame(false);
 }
 function resumeGame(){
+ if(mabarNetworkMode&&!mabarNetworkHost){say("Menunggu Host melanjutkan permainan.");return;}
  if(!gamePaused)return;
  gamePaused=false;
  const overlay=document.getElementById("pauseOverlay");if(overlay)overlay.classList.remove("show");
  const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent="⏸ Pause Game";
  saveGame(false);
- if(current!==0&&!gameOver&&!busy)aiTurn();
+ if(current!==mabarMySeat&&!gameOver&&!busy){if(players[current].isRemoteHuman)say("Menunggu aksi "+players[current].name+"...");else if(!mabarNetworkMode||mabarNetworkHost)aiTurn();}
 }
 function adventureBar(){
  if(!audioCtx||!musicEnabled)return;
@@ -400,6 +402,11 @@ const originalTiles=[
 let tiles=JSON.parse(JSON.stringify(originalTiles));
 let players=[];
 let current=0,rolled=false,busy=false,gameOver=false;
+let mabarNetworkMode=false,mabarNetworkHost=false,mabarMySeat=0,mabarRemoteAction=false,mabarApplyingState=false;
+function mabarCanControl(){return current===mabarMySeat||(mabarNetworkHost&&mabarRemoteAction);}
+function mabarRequest(action){return !!(mabarNetworkMode&&!mabarNetworkHost&&window.WijayaMabar&&window.WijayaMabar.requestAction(action));}
+function mabarPublishState(data){if(mabarNetworkMode&&mabarNetworkHost&&!mabarApplyingState&&window.WijayaMabar&&window.WijayaMabar.publishState)window.WijayaMabar.publishState(data);}
+
 let selected=null,landedIndex=null,upgradeUsedThisTurn=false,debt=false,specialUsedThisTurn=false,special3Mode="",special5Mode="";
 let pendingFreeUpgrade=false;
 let pendingSpecialPayment=null;
@@ -641,8 +648,8 @@ function render(){
   }
   const hint=e.querySelector(".upgrade-hint");
   if(hint){
-   const eligible=owner===0&&current===0&&rolled&&!busy&&!gameOver&&!debt&&!upgradeUsedThisTurn&&
-    ["street","utility"].includes(tiles[i].type)&&(tiles[i].stars||0)<maxStars(i)&&players[0].cash>=upgradeCost(i);
+   const eligible=owner===mabarMySeat&&current===mabarMySeat&&rolled&&!busy&&!gameOver&&!debt&&!upgradeUsedThisTurn&&
+    ["street","utility"].includes(tiles[i].type)&&(tiles[i].stars||0)<maxStars(i)&&players[current].cash>=upgradeCost(i);
    hint.classList.toggle("show",!!eligible);
   }
  });
@@ -681,7 +688,7 @@ function render(){
  const sellBtn=document.getElementById("sellSpecialCardBtn");
  const sellHint=document.getElementById("sellSpecialCardHint");
  if(sellBtn){
-  const ownCard=players[0];
+  const ownCard=players[mabarMySeat];
   const count=ownCard?(ownCard.specialCards||0):0;
   const uses=ownCard&&Number.isInteger(ownCard.specialCardUsesLeft)?ownCard.specialCardUsesLeft:3;
   const salePrice=uses>=3?1000000:uses===2?750000:500000;
@@ -704,35 +711,35 @@ function render(){
   }
  }
  document.getElementById("turnInfo").textContent=
-  current===0?"GILIRAN KAMU":"GILIRAN: "+players[current].name;
+  current===mabarMySeat?"GILIRAN KAMU":"GILIRAN: "+players[current].name;
 
  document.getElementById("rollBtn").disabled=
-  gamePaused||busy||current!==0||(rolled&&players[0].jail<=0)||gameOver||debt||players[0].bankrupt||!!special3Mode||!!special5Mode;
+  gamePaused||busy||!mabarCanControl()||(rolled&&players[current].jail<=0)||gameOver||debt||players[current].bankrupt||!!special3Mode||!!special5Mode;
 
  document.getElementById("rollBtn").textContent=
-  players[0].jail>0?"🔒 LEMPAR DADU UNTUK KELUAR":"🎲 LEMPAR DADU";
+  players[current].jail>0?"🔒 LEMPAR DADU UNTUK KELUAR":"🎲 LEMPAR DADU";
 
  document.getElementById("endBtn").disabled=
-  busy||current!==0||!rolled||gameOver||debt||!!special3Mode||!!special5Mode||!!pendingSpecialPayment;
+  busy||!mabarCanControl()||!rolled||gameOver||debt||!!special3Mode||!!special5Mode||!!pendingSpecialPayment;
 
  const bi=landedIndex,bt=bi!==null?tiles[bi]:null;
 
  document.getElementById("buyBtn").disabled=
-  busy||current!==0||!rolled||bi===null||gameOver||debt||!bt||
+  busy||!mabarCanControl()||!rolled||bi===null||gameOver||debt||!bt||
   ownerOf(bi)!==-1||!["street","rail","utility"].includes(bt.type)||
-  players[0].cash<bt.p;
+  players[current].cash<bt.p;
 
  const ut=selected!==null?tiles[selected]:null;
 
  document.getElementById("upgradeBtn").disabled=
-  busy||current!==0||!rolled||selected===null||gameOver||debt||
-  upgradeUsedThisTurn||ownerOf(selected)!==0||!ut||
+  busy||!mabarCanControl()||!rolled||selected===null||gameOver||debt||
+  upgradeUsedThisTurn||ownerOf(selected)!==current||!ut||
   !["street","utility"].includes(ut.type)||(ut.stars||0)>=maxStars(selected)||
-  players[0].cash<upgradeCost(selected);
+  players[current].cash<upgradeCost(selected);
 
  const freeMoveButton=document.getElementById("freeMoveBtn");
- freeMoveButton.style.display=players[0].freeMove?"inline-block":"none";
- freeMoveButton.disabled=busy||current!==0||!rolled||!players[0].freeMove||selected===null||gameOver||debt;
+ freeMoveButton.style.display=players[mabarMySeat]?.freeMove?"inline-block":"none";
+ freeMoveButton.disabled=busy||!mabarCanControl()||!rolled||!players[current].freeMove||selected===null||gameOver||debt;
 
  const choosingSpecial5=special5Mode==="target";
  const special5Panel=document.getElementById("special5Choices");
@@ -768,8 +775,8 @@ function render(){
  const intentWrap=document.getElementById("specialIntentWrap");
  const intentText=document.getElementById("specialIntentText");
 
- const canOfferSpecial=!!pendingSpecialPayment&&current===0&&
-  (players[0].specialCards||0)>0&&!specialUsedThisTurn;
+ const canOfferSpecial=!!pendingSpecialPayment&&current===mabarMySeat&&
+  (players[mabarMySeat].specialCards||0)>0&&!specialUsedThisTurn;
  intentWrap.style.display=(canOfferSpecial&&!choosingSpecial5)?"block":"none";
  intentText.textContent=pendingSpecialPayment?
   "🎴 Gunakan Kartu Spesial untuk "+pendingSpecialPayment.reason:
@@ -1215,7 +1222,7 @@ async function land(pi,roll,fromFreeMove=false){
   if(owner===-1){
    say(p.name+" berhenti di "+t.n+". Harga beli "+money(t.p)+".");
 
-   if(pi!==0&&p.cash>=t.p&&p.cash>aiSetting().buyReserve&&Math.random()<aiSetting().buyChance){
+   if(pi!==0&&!p.isRemoteHuman&&p.cash>=t.p&&p.cash>aiSetting().buyReserve&&Math.random()<aiSetting().buyChance){
     p.cash-=t.p;
     p.owned.push(i);
     say(p.name+" membeli "+t.n);
@@ -1302,7 +1309,7 @@ async function land(pi,roll,fromFreeMove=false){
 
 async function rollDice(){
  if(gamePaused)return;
- if(busy||current!==0||(rolled&&players[0].jail<=0)||gameOver||debt||players[0].bankrupt)return;
+ if(busy||!mabarCanControl()||(rolled&&players[current].jail<=0)||gameOver||debt||players[current].bankrupt)return;
 
  busy=true;
  render();
@@ -1322,7 +1329,7 @@ async function rollDice(){
 
   document.getElementById("dice").textContent="🎲 "+a+" + "+b+" = "+(a+b);
 
-  const human=players[0];
+  const human=players[current];
 
   if(human.jail>0){
    if(human.jail>0&&a===b){
@@ -1332,7 +1339,7 @@ async function rollDice(){
     await animateMove(human,a+b);
     rolled=true;
     selected=human.pos;
-    await land(0,a+b);
+    await land(current,a+b);
    }else if(human.jail>0){
     human.jailAttempts=(human.jailAttempts||0)+1;
     const left=3-human.jailAttempts;
@@ -1355,7 +1362,7 @@ async function rollDice(){
    await animateMove(human,a+b);
    rolled=true;
    selected=human.pos;
-   await land(0,a+b);
+   await land(current,a+b);
   }
 
   if(human.bankrupt&&!gameOver){
@@ -1372,10 +1379,10 @@ async function rollDice(){
 }
 
 function buyProperty(){
- if(current!==0||!rolled||busy||gameOver||debt)return;
+ if(!mabarCanControl()||!rolled||busy||gameOver||debt)return;
 
  const i=landedIndex;
- if(i===null||i!==players[0].pos)return;
+ if(i===null||i!==players[current].pos)return;
 
  const t=tiles[i];
 
@@ -1389,21 +1396,21 @@ function buyProperty(){
   return;
  }
 
- if(players[0].cash<t.p){
+ if(players[current].cash<t.p){
   say("Uang kamu tidak cukup.");
   return;
  }
 
- players[0].cash-=t.p;
- players[0].owned.push(i);
+ players[current].cash-=t.p;
+ players[current].owned.push(i);
 
- say("Kamu membeli "+t.n+" seharga "+money(t.p)+".");
+ say(players[current].name+" membeli "+t.n+" seharga "+money(t.p)+".");
  render();
  saveGame(false);
 }
 
 function upgradeProperty(){
- if(current!==0||!rolled||busy||gameOver||debt)return;
+ if(!mabarCanControl()||!rolled||busy||gameOver||debt)return;
 
  if(upgradeUsedThisTurn){
   say("Jatah upgrade giliran ini sudah digunakan.");
@@ -1414,29 +1421,29 @@ function upgradeProperty(){
 
  const t=tiles[selected];
 
- if(ownerOf(selected)!==0||!["street","utility"].includes(t.type)||(t.stars||0)>=maxStars(selected))return;
+ if(ownerOf(selected)!==current||!["street","utility"].includes(t.type)||(t.stars||0)>=maxStars(selected))return;
 
  const cost=upgradeCost(selected);
 
- if(players[0].cash<cost){
+ if(players[current].cash<cost){
   say("Uang kamu tidak cukup untuk upgrade.");
   return;
  }
 
- players[0].cash-=cost;
+ players[current].cash-=cost;
  t.stars=(t.stars||0)+1;
  upgradeUsedThisTurn=true;
 
- say(t.n+" berhasil ditingkatkan menjadi "+t.stars+" bintang. Biaya "+money(cost)+". Jatah upgrade giliran ini sudah digunakan.");
+ say(players[current].name+" meningkatkan "+t.n+" menjadi "+t.stars+" bintang. Biaya "+money(cost)+".");
 
  render();
  saveGame(false);
 }
 
 async function freeMove(){
- if(current!==0||!rolled||busy||gameOver||debt||!players[0].freeMove||selected===null)return;
+ if(!mabarCanControl()||!rolled||busy||gameOver||debt||!players[current].freeMove||selected===null)return;
 
- const destination=selected,p=players[0];
+ const destination=selected,p=players[current];
 
  p.freeMove=false;
  p.pos=destination;
@@ -1444,7 +1451,7 @@ async function freeMove(){
 
  say("Kamu menggunakan kesempatan pindah gratis ke "+tiles[destination].n+".");
 
- await land(0,7,true);
+ await land(current,7,true);
  render();
  saveGame(false);
 }
@@ -1707,8 +1714,10 @@ async function nextTurn(){
   saveGame(false);
  }
 
- if(current!==0&&!gameOver){
-  aiTurn();
+ if(current!==mabarMySeat&&!gameOver){
+  if(players[current].isRemoteHuman){say("Menunggu aksi "+players[current].name+"...");}
+  else if(mabarNetworkMode&&!mabarNetworkHost){say("Menunggu pembaruan dari Host...");}
+  else aiTurn();
  }else{
   const history=document.getElementById("log");
   if(history)history.scrollTo({top:0,behavior:"smooth"});
@@ -1721,8 +1730,8 @@ async function nextTurn(){
 
 function endTurn(){
  if(gamePaused)return;
- if(current!==0||!rolled||busy||debt||gameOver)return;
- nextTurn();
+ if(!mabarCanControl()||!rolled||busy||debt||gameOver)return;
+ return nextTurn();
 }
 
 function checkVictory(){
@@ -1784,6 +1793,7 @@ function saveGame(show=true){
 
  try{
   localStorage.setItem(SAVE_KEY,JSON.stringify(data));
+  mabarPublishState(data);
   if(show)say("Permainan berhasil disimpan di perangkat ini.");
   return true;
  }catch(e){
@@ -1955,12 +1965,62 @@ document.getElementById("aiDifficulty").addEventListener("change",ev=>{
  saveGame(false);
 });
 setAIDifficulty(aiDifficulty);
-document.getElementById("rollBtn").addEventListener("click",rollDice);
+function mabarSetupGame(roomPlayers, seat, isHost){
+ mabarNetworkMode=false;mabarNetworkHost=!!isHost;mabarMySeat=Number(seat)||0;mabarRemoteAction=false;
+ newGame();
+ mabarNetworkMode=true;
+ const base=freshPlayers();
+ const sorted=(roomPlayers||[]).slice().sort((a,b)=>a.seatIndex-b.seatIndex);
+ players=base.map((p,i)=>{
+  const meta=sorted[i]||{};
+  return {...p,name:meta.name||p.name,networkId:meta.id||null,isBot:!!meta.isBot,isRemoteHuman:!meta.isBot&&i!==0};
+ });
+ current=0;rolled=false;busy=false;gameOver=false;selected=null;landedIndex=null;
+ buildBoard();render();say("Room multiplayer aktif. Semua pemain berbagi satu papan. Giliran pertama: "+players[0].name+".");saveGame(false);
+}
+function mabarApplyState(d){
+ if(!d||!Array.isArray(d.players)||d.players.length!==4)return;
+ mabarApplyingState=true;
+ try{
+  players=d.players.map(p=>({...p}));current=Number(d.current)||0;rolled=!!d.rolled;gameOver=!!d.gameOver;
+  availableSpecialCards=Number.isInteger(d.availableSpecialCards)?d.availableSpecialCards:3;
+  disasterCounts=d.disasterCounts||{storm:0,earthquake:0};disasterUnlocked=d.disasterUnlocked||{storm:false,earthquake:false};
+  aiDifficulty=d.aiDifficulty||aiDifficulty;gamePaused=!!d.gamePaused;landedIndex=Number.isInteger(d.landedIndex)?d.landedIndex:null;
+  upgradeUsedThisTurn=!!d.upgradeUsedThisTurn;specialUsedThisTurn=!!d.specialUsedThisTurn;selected=Number.isInteger(d.selected)?d.selected:null;
+  special3Mode=d.special3Mode||"";special5Mode=d.special5Mode||"";pendingSpecialPayment=d.pendingSpecialPayment||null;pendingDebtPayment=d.pendingDebtPayment||null;debt=!!pendingDebtPayment;busy=false;
+  tiles=JSON.parse(JSON.stringify(originalTiles));(d.tiles||[]).forEach((x,i)=>{if(tiles[i])tiles[i].stars=x.stars||0;});
+  const overlay=document.getElementById("pauseOverlay");if(overlay)overlay.classList.toggle("show",gamePaused);
+  const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent=gamePaused?"▶ Lanjutkan Game":"⏸ Pause Game";
+  const dice=document.getElementById("dice");if(dice)dice.textContent=d.diceText||"🎲";
+  const history=document.getElementById("log");if(history){history.innerHTML="";(d.logEntries||[]).slice().reverse().forEach(msg=>log(msg));}
+  buildBoard();render();
+  if(gameOver)checkVictory();
+ }finally{mabarApplyingState=false;}
+}
+function mabarHandleHostAction(action,seatIndex,selectedIndex){
+ if(!mabarNetworkHost||current!==Number(seatIndex)||busy||gameOver||mabarRemoteAction)return;
+ if(Number.isInteger(selectedIndex)&&selectedIndex>=0&&selectedIndex<tiles.length)selected=selectedIndex;
+ mabarRemoteAction=true;
+ let result;
+ try{
+  if(action==='roll')result=rollDice();
+  else if(action==='buy')result=buyProperty();
+  else if(action==='upgrade')result=upgradeProperty();
+  else if(action==='end_turn')result=endTurn();
+  else if(action==='free_move')result=freeMove();
+ }catch(e){mabarRemoteAction=false;throw e;}
+ Promise.resolve(result).finally(()=>{mabarRemoteAction=false;});
+}
+function mabarHandleTimeout(seatIndex){if(!mabarNetworkHost||current!==Number(seatIndex)||gameOver||gamePaused)return;rolled=false;pendingDebtPayment=null;pendingSpecialPayment=null;debt=false;special3Mode='';special5Mode='';say('Waktu giliran habis. Giliran dilewati.');nextTurn();}
+window.WijayaMabarGame={setup:mabarSetupGame,applyState:mabarApplyState,hostAction:mabarHandleHostAction,timeoutTurn:mabarHandleTimeout};
+Object.defineProperty(window,'WijayaMabarSelected',{get:()=>selected});
+
+document.getElementById("rollBtn").addEventListener("click",()=>{if(!mabarRequest("roll"))rollDice();});
 document.getElementById("borrowToPayBtn").addEventListener("click",borrowBankToPay);
 document.getElementById("sellSpecialCardBtn").addEventListener("click",sellSpecialCard);
 document.querySelectorAll("[data-special3]").forEach(btn=>btn.addEventListener("click",()=>chooseSpecial3Mode(btn.dataset.special3)));
 document.getElementById("special5Buttons").addEventListener("click",ev=>{const btn=ev.target.closest("[data-special5-target]");if(btn)chooseSpecial5Target(Number(btn.dataset.special5Target));});
-document.getElementById("endBtn").addEventListener("click",endTurn);
+document.getElementById("endBtn").addEventListener("click",()=>{if(!mabarRequest("end_turn"))endTurn();});
 
 document.getElementById("specialIntentText").addEventListener("click",()=>resolveSpecialPayment(true));
 document.getElementById("specialIntentText").addEventListener("keydown",e=>{
@@ -1968,9 +2028,9 @@ document.getElementById("specialIntentText").addEventListener("keydown",e=>{
 });
 document.getElementById("payNormallyBtn").addEventListener("click",()=>resolveSpecialPayment(false));
 
-document.getElementById("buyBtn").addEventListener("click",buyProperty);
-document.getElementById("upgradeBtn").addEventListener("click",upgradeProperty);
-document.getElementById("freeMoveBtn").addEventListener("click",freeMove);
+document.getElementById("buyBtn").addEventListener("click",()=>{if(!mabarRequest("buy"))buyProperty();});
+document.getElementById("upgradeBtn").addEventListener("click",()=>{if(!mabarRequest("upgrade"))upgradeProperty();});
+document.getElementById("freeMoveBtn").addEventListener("click",()=>{if(!mabarRequest("free_move"))freeMove();});
 document.getElementById("saveBtn").addEventListener("click",()=>saveGame(true));
 document.getElementById("loadBtn").addEventListener("click",loadGame);
 document.getElementById("pauseBtn").addEventListener("click",()=>gamePaused?resumeGame():pauseGame());
@@ -2048,2020 +2108,62 @@ document.addEventListener("pointerdown", function(event) {
 <div id="mabarModal" role="dialog" aria-modal="true" aria-labelledby="mabarTitle">
  <div class="mabar-card">
   <h2 id="mabarTitle">🌐 MABAR ONLINE WIJAYA</h2>
-  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 kursi. Mulai dengan 2 atau 3 pemain siap; bot otomatis mengisi kursi yang kosong.</p>
-  <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" placeholder="wss://alamat-server-anda" autocomplete="url">
+  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 peserta. Host dapat menambahkan 1–3 bot yang langsung siap, lalu mulai tanpa menunggu pemain lain.</p>
+  <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" value="wss://wijaya-mabar-server-0a541514.enzonic.dev" placeholder="wss://alamat-server-anda" autocomplete="url">
   <label>Nama pemain</label><input id="mabarName" class="mabar-field" maxlength="18" placeholder="Nama kamu">
   <div class="mabar-actions"><button id="mabarCreate" class="mabar-primary">BUAT ROOM</button><button id="mabarJoin" class="mabar-secondary">GABUNG ROOM</button></div>
   <label>Kode Room</label><input id="mabarCode" class="mabar-field" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" placeholder="Contoh: 4821">
   <div class="mabar-actions"><button id="mabarSpectate" class="mabar-secondary">MASUK SEBAGAI PENONTON</button><button id="mabarReady" class="mabar-primary" disabled>SIAP</button></div>
   <div id="mabarStatus" class="mabar-status">Belum terhubung. Masukkan alamat server online untuk memulai.</div>
   <div id="mabarRoster"></div>
-  <div class="mabar-actions" style="margin-top:10px"><button id="mabarStart" class="mabar-primary" disabled>MULAI PERMAINAN</button><button id="mabarClose" class="mabar-secondary">TUTUP</button></div>
-  <p class="mabar-small">Batas giliran: 60 detik. Jika Host terputus, server tetap menjaga Room dan permainan. Fitur lobi memerlukan server online yang dijalankan terpisah.</p>
+  <div class="mabar-actions" style="margin-top:8px"><button id="mabarAddBot" class="mabar-secondary" disabled>🤖 TAMBAH BOT</button><button id="mabarStart" class="mabar-primary" disabled>MULAI PERMAINAN</button></div>
+  <div class="mabar-actions"><button id="mabarClose" class="mabar-secondary" style="grid-column:1/-1">TUTUP</button></div>
+  <p class="mabar-small">Batas giliran: 60 detik. Jika koneksi Host terputus, aksi permainan berhenti sampai Host tersambung kembali. Server harus tetap online.</p>
  </div>
 </div>
 <script>
 (function(){
- const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null;
+ const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false;
  const modal=$('mabarModal'),status=$('mabarStatus'),roster=$('mabarRoster');
  function say(t){status.textContent=t}
- function send(type,data={}){if(!ws||ws.readyState!==WebSocket.OPEN){say('Belum tersambung ke server.');return}ws.send(JSON.stringify({type,...data}))}
- function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://). Untuk internet publik gunakan wss://.');return}if(!name){say('Masukkan nama pemain terlebih dahulu.');return}try{ws=new WebSocket(url)}catch(e){say('Alamat server tidak valid.');return}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.replace(/\D/g,'').slice(0,4)})};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return}if(m.type==='error'){say(m.message||'Terjadi kesalahan.');return}if(m.type==='room'){room=m.room;role=m.role||role;playerId=m.playerId||null;ready=!!room.players.find(p=>p.id===playerId)?.ready;$('mabarCode').value=room.code;say('Room '+room.code+' • '+(room.started?'Permainan berlangsung':'Menunggu pemain')+'\nPemain siap: '+(room.readyCount||0)+'/4 • Bot akan mengisi kursi kosong.');render(room);$('mabarReady').disabled=role==='spectator'||role==='host';$('mabarReady').textContent=role==='host'?'HOST SIAP':(ready?'BATAL SIAP':'SIAP');updateStart(room);return}if(m.type==='room_update'){room=m.room;ready=!!room.players.find(p=>p.id===playerId)?.ready;render(room);$('mabarReady').textContent=role==='host'?'HOST SIAP':(ready?'BATAL SIAP':'SIAP');$('mabarReady').disabled=role==='spectator'||role==='host'||room.started;updateStart(room);return}if(m.type==='turn_timer'){say('Giliran pemain: '+m.playerName+'\nSisa waktu: '+m.seconds+' detik');return}if(m.type==='game_event'){say('Pembaruan permainan diterima dari server.');return}if(m.type==='info')say(m.message||'Informasi dari server.');};ws.onclose=()=>{say('Koneksi terputus. Room tetap disimpan server; sambungkan kembali dengan kode yang sama.');$('mabarReady').disabled=true;$('mabarStart').disabled=true};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
- function updateStart(r){const n=Number(r.readyCount??(r.players||[]).filter(p=>!p.isBot&&p.ready).length);$('mabarStart').disabled=role!=='host'||!!r.started||n<2||n>3;}
- function render(r){roster.innerHTML='<b>Daftar Room</b><div class="mabar-small">Pemain siap: '+(r.readyCount??(r.players||[]).filter(p=>!p.isBot&&p.ready).length)+' • Bot otomatis mengisi hingga 4 kursi.</div>';const list=[...(r.players||[]).map(p=>({...p,kind:p.isBot?'Bot':'Pemain'})),...(r.spectators||[]).map(p=>({...p,kind:'Penonton'}))];list.forEach(p=>{const d=document.createElement('div');d.className='mabar-player';const a=document.createElement('span');a.textContent=(p.name||'Pemain')+(p.host?' 👑':'');const b=document.createElement('span');b.textContent=p.kind+(p.kind==='Pemain'?(p.ready?' • Siap':' • Belum siap'):'');d.append(a,b);roster.append(d)})}
- $('mabarCode').addEventListener('input',()=>{$('mabarCode').value=$('mabarCode').value.replace(/\D/g,'').slice(0,4)});
+ function send(type,data={}){if(!ws||ws.readyState!==WebSocket.OPEN){say('Belum tersambung ke server.');return false;}ws.send(JSON.stringify({type,...data}));return true;}
+ function requestAction(action){if(!ws||ws.readyState!==WebSocket.OPEN||!room?.started||isHost)return false;send('player_action',{action,selected:Number.isInteger(window.WijayaMabarSelected)?window.WijayaMabarSelected:null});return true;}
+ function publishState(state){if(isHost&&room?.started)send('game_state',{state});}
+ function updateStart(r){const humans=(r.players||[]).filter(p=>!p.isBot&&p.ready).length;const bots=(r.players||[]).filter(p=>p.isBot).length;$('mabarStart').disabled=role!=='host'||!!r.started||humans<1||(humans<2&&bots<1)||humans+bots<2;$('mabarAddBot').disabled=role!=='host'||!!r.started||bots>=3||(r.players||[]).length>=4;}
+ function render(r){const humans=(r.players||[]).filter(p=>!p.isBot).length;const bots=(r.players||[]).filter(p=>p.isBot).length;roster.innerHTML='<b>Daftar Room</b><div class="mabar-small">Pemain manusia: '+humans+' • Bot siap: '+bots+' • Total: '+(r.players||[]).length+'/4</div>';const list=[...(r.players||[]).map(p=>({...p,kind:p.isBot?'Bot':'Pemain'})),...(r.spectators||[]).map(p=>({...p,kind:'Penonton'}))];list.forEach(p=>{const d=document.createElement('div');d.className='mabar-player';const a=document.createElement('span');a.textContent=(p.name||'Pemain')+(p.host?' 👑':'');const b=document.createElement('span');b.textContent=p.kind+(p.kind==='Bot'?' • Siap':(p.kind==='Pemain'?(p.ready?' • Siap':' • Belum siap'):''));d.append(a,b);roster.append(d)});}
+ function handleMessage(m){
+  if(m.type==='error'){say(m.message||'Terjadi kesalahan.');return;}
+  if(m.type==='room'||m.type==='room_update'){
+   room=m.room; if(m.type==='room'){role=m.role||role;playerId=m.playerId||playerId;mySeat=role==='spectator'?-1:Number(m.seatIndex??room.players.find(p=>p.id===playerId)?.seatIndex??0);isHost=role==='host';if(room.started)mabarNetworkMode=true;}
+   ready=!!room.players.find(p=>p.id===playerId)?.ready;$('mabarCode').value=room.code;say('Room '+room.code+' • '+(room.started?'Permainan berlangsung':'Menunggu pemain')+'\nPeserta: '+room.players.length+'/4 • Bot siap: '+(room.botCount||0));render(room);
+   $('mabarReady').disabled=role==='spectator'||role==='host'||room.started;$('mabarReady').textContent=role==='host'?'HOST SIAP':(ready?'BATAL SIAP':'SIAP');updateStart(room);return;
+  }
+  if(m.type==='game_started'){
+   room.started=true;modal.classList.remove('open');mabarNetworkMode=true;mabarNetworkHost=!!isHost;
+   const mine=(m.players||[]).find(p=>p.id===playerId);mySeat=mine?mine.seatIndex:(role==='spectator'?-1:0);
+   if(isHost){window.WijayaMabarGame.setup(m.players,0,true);say('Permainan dimulai. Papan bersama aktif.');}
+   else {say('Permainan dimulai. Menunggu sinkronisasi papan...');}
+   return;
+  }
+  if(m.type==='host_action'){
+   if(isHost)window.WijayaMabarGame.hostAction(m.action,m.seatIndex,m.selected);return;
+  }
+  if(m.type==='host_turn_timeout'){if(isHost)window.WijayaMabarGame.timeoutTurn(m.seatIndex);return;}
+  if(m.type==='game_state'){
+   if(!isHost)window.WijayaMabarGame.applyState(m.state);
+   const turn=m.turn;if(turn)say('Room '+(room?.code||'')+' • Giliran: '+turn.playerName+(turn.isBot?' (Bot)':''));return;
+  }
+  if(m.type==='info'){say(m.message||'Informasi dari server.');return;}
+  if(m.type==='game_event')say('Pembaruan permainan diterima dari server.');
+ }
+ function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://).');return;}if(!name){say('Masukkan nama pemain terlebih dahulu.');return;}try{ws=new WebSocket(url);}catch(e){say('Alamat server tidak valid.');return;}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.replace(/\D/g,'').slice(0,4)});};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{return;}handleMessage(m);};ws.onclose=()=>{say('Koneksi terputus. Jika Host terputus, permainan berhenti menerima aksi sampai Host tersambung kembali.');$('mabarReady').disabled=true;$('mabarStart').disabled=true;};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
+ $('mabarCode').addEventListener('input',()=>{$('mabarCode').value=$('mabarCode').value.replace(/\D/g,'').slice(0,4);});
  $('openMabar').addEventListener('click',()=>modal.classList.add('open'));$('mabarClose').addEventListener('click',()=>modal.classList.remove('open'));
- $('mabarCreate').addEventListener('click',()=>{role='host';connect('create_room')});$('mabarJoin').addEventListener('click',()=>{role='player';connect('join_room')});$('mabarSpectate').addEventListener('click',()=>{role='spectator';connect('spectate_room')});$('mabarReady').addEventListener('click',()=>{if(role==='host'||role==='spectator')return;ready=!ready;send('set_ready',{ready});$('mabarReady').textContent=ready?'BATAL SIAP':'SIAP'});$('mabarStart').addEventListener('click',()=>send('start_game'));
- window.WijayaMabar={send,connected:()=>!!ws&&ws.readyState===WebSocket.OPEN,getRoom:()=>room};
+ $('mabarCreate').addEventListener('click',()=>{role='host';connect('create_room');});$('mabarJoin').addEventListener('click',()=>{role='player';connect('join_room');});$('mabarSpectate').addEventListener('click',()=>{role='spectator';connect('spectate_room');});
+ $('mabarReady').addEventListener('click',()=>{if(role==='host'||role==='spectator')return;ready=!ready;send('set_ready',{ready});$('mabarReady').textContent=ready?'BATAL SIAP':'SIAP';});
+ $('mabarAddBot').addEventListener('click',()=>send('add_bot'));$('mabarStart').addEventListener('click',()=>send('start_game'));
+ window.WijayaMabar={send,requestAction,publishState,connected:()=>!!ws&&ws.readyState===WebSocket.OPEN,getRoom:()=>room};
 })();
-</script>
-
-</body>
-</html>
-es upgradePulse{from{transform:scale(.82);filter:brightness(.9)}to{transform:scale(1.18);filter:brightness(1.5)}}
-.tile.storm-hit{animation:stormShake .18s linear infinite;filter:brightness(1.5) saturate(.5)}@keyframes stormShake{0%{transform:translate(0,0)}25%{transform:translate(-2px,1px)}50%{transform:translate(2px,-1px)}75%{transform:translate(-1px,-2px)}100%{transform:translate(0,0)}}
-.tile.earthquake-hit{animation:quakeShake .12s linear infinite;filter:brightness(1.7) sepia(.5)}@keyframes quakeShake{0%{transform:translate(0,0) rotate(0)}25%{transform:translate(-3px,1px) rotate(-2deg)}50%{transform:translate(3px,-1px) rotate(2deg)}75%{transform:translate(-2px,-2px) rotate(-1deg)}100%{transform:translate(0,0) rotate(0)}}
-.disaster-overlay{display:none;position:fixed;inset:0;z-index:9999;pointer-events:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;background:rgba(4,12,20,.82);overflow:hidden}.disaster-overlay.show{display:flex;animation:disasterFlash .35s ease-in-out 5 alternate}.disaster-title{font-size:clamp(24px,6vw,54px);font-weight:1000;color:#fff;text-shadow:0 4px 12px #000,0 0 20px #facc15;padding:18px}.disaster-weather{font-size:clamp(30px,8vw,72px);line-height:1.8;max-width:95%;animation:weatherMove .55s linear infinite alternate}.disaster-overlay.storm{background:linear-gradient(180deg,rgba(5,12,35,.95),rgba(25,42,58,.82))}.disaster-overlay.storm .disaster-weather{filter:drop-shadow(0 0 12px #bfdbfe)}.disaster-overlay.earthquake{background:radial-gradient(ellipse,#6b4325ed,#111827f5)}@keyframes weatherMove{from{transform:translateX(-18px) translateY(-6px) rotate(-2deg)}to{transform:translateX(18px) translateY(8px) rotate(2deg)}}@keyframes disasterFlash{from{filter:brightness(.85)}to{filter:brightness(1.35)}}
-
-
-@keyframes apocBoard{from{filter:brightness(.8)}to{filter:brightness(1.2)}}
-@keyframes apocTile{from{transform:translate(0,0)}to{transform:translate(1px,-1px)}}
-@keyframes apocFire{from{filter:brightness(.85) sepia(.2)}to{filter:brightness(1.5) sepia(.6)}}
-</style>
-</head>
-<body>
-
-<h1>MONOPOLI INDONESIA WIJAYA</h1>
-<div class="subtitle">Jelajahi Indonesia • Bangun properti • Jadilah miliarder</div>
-<div style="text-align:center;margin:10px auto 14px"><button id="openMabar" type="button" style="background:#0ea5e9;color:#082f49;font-weight:bold;padding:11px 22px;border-radius:10px">🌐 MABAR ONLINE</button></div>
-
-<div class="panel">
- <div class="stats" id="stats"></div>
- <div class="legend">
-  <span><i class="dot" style="background:#ef4444"></i>Kamu</span>
-  <span><i class="dot" style="background:#3b82f6"></i>AI Biru</span>
-  <span><i class="dot" style="background:#a855f7"></i>AI Ungu</span>
-  <span><i class="dot" style="background:#22c55e"></i>AI Hijau</span>
- </div>
-</div>
-
-<div class="board-wrap">
- <div class="board" id="board">
-  <div class="center">
-   <div id="propertyInfo">
-    <div class="property-info">
-     <h2>MONOPOLI INDONESIA</h2>
-     Pilih petak untuk melihat informasi properti.
-     <div class="center-hint">Harga beli • Harga sewa • Harga jual • Biaya upgrade</div>
-    </div>
-   </div>
-   <div id="boardInfo">
-    <div id="boardStatus">Tekan tombol lempar dadu untuk mulai.</div>
-    <details>
-     <summary>📋 Informasi & aturan permainan</summary>
-     <div style="margin-top:8px;line-height:1.65">
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>💰 Modal & kemenangan</b><br>Setiap pemain mulai dengan Rp500.000. Pemain menang jika saldo uang tunainya mencapai Rp10.000.000 (nilai properti tidak dihitung), atau menjadi satu-satunya pemain yang belum bangkrut.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🚩 Petak MULAI</b><br>Mendapat Rp50.000 setiap kali melewati petak MULAI saat bergerak mengelilingi papan.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🏦 Pinjaman bank & penjualan aset</b><br>Pinjaman bank maksimal Rp2.000.000. Jika tersisa 3 pemain: pemain dengan uang tertinggi menerima Rp500.000 dan dua pemain lainnya masing-masing Rp1.000.000. Jika tersisa 2 pemain: pemain dengan uang tertinggi menerima Rp1.000.000 dan pemain lainnya Rp2.000.000.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🚔 Penjara</b><br>Pemain yang masuk penjara kehilangan giliran dan boleh melempar 2 dadu untuk mencoba mendapat angka kembar (double). Jika double, langsung bebas dan bergerak. Setelah percobaan ketiga, pemain otomatis bebas jika belum mendapat double.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🎁 Dana Umum & Kesempatan</b><br>Kedua petak memberikan kejadian uang secara acak; pemain bisa menerima hadiah atau membayar biaya.
-      </div>
-      <div id="disasterRulesInfo" style="margin:0 0 12px;padding:10px;border:1px solid #64748b;border-radius:8px;background:rgba(15,23,42,.25)">
-       <b>🌪️ Informasi musibah</b><br><b>Musibah badai hujan petir</b><br>Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 10 properti berbintang. Maksimal 1 kali. Badai memilih hingga 5 properti acak milik pemain; tingkat bintangnya turun secara acak menjadi 0–5.<br><br>
-       <b>Musibah gempa bumi</b><br>Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 20 properti. Maksimal 1 kali. Gempa menghancurkan hingga 5 properti acak milik pemain (tingkat bintang 0–5) dan mengembalikannya menjadi properti kosong.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🎲 Dadu Istimewa</b><br><b>Angka 1</b><br>Menerima Rp500.000.<br><br>
-       <b>Angka 2</b><br>Membayar utang Rp500.000; uang tunai langsung dipotong, jika kurang pemain memilih properti untuk dijual ke bank, dan jika tetap kurang saldo menjadi minus.<br><br>
-       <b>Angka 3</b><br>Pilih membeli paksa properti milik pemain lain seharga nilai jual asetnya, membeli properti kosong dengan diskon 50%, atau batal.<br><br>
-       <b>Angka 4</b><br>Mendapat 1 Kartu Spesial jika persediaan masih tersedia.<br><br>
-       <b>Angka 5</b><br>Pilih pemain yang kehilangan 2 aset acak; setiap pemain aktif lainnya kehilangan 1 aset acak. Efek animasi dan suara muncul, tetapi petak properti tetap ada dan kembali normal.<br><br>
-       <b>Angka 6</b><br>Masuk penjara selama 3 giliran.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🎴 Kartu Spesial</b><br>Persediaan awal 3 kartu. Setiap kartu dapat dipakai 3 kali sebelum habis; kartu dapat dijual ke bank seharga Rp1.000.000. Saat berhenti di petak sewa atau pajak yang memenuhi syarat, pemain dapat mengetuk Gunakan Kartu Spesial untuk membatalkan pembayaran tersebut. Jika tidak digunakan, pilih bayar normal dan kartu tetap tersimpan. Maksimal 1 kartu digunakan setiap giliran.
-      </div>
-      <div style="margin:0 0 12px;padding-bottom:9px;border-bottom:1px solid #64748b">
-       <b>🏠 Harga sewa</b><br>Properti jalan dimulai dari 50% harga beli; setiap bintang menambah 50% harga beli (0–6 bintang = 50%–350%). Perusahaan Air/Listrik memakai rumus yang sama (maksimal 3 bintang = 50%–200%). Bonus kepemilikan grup berlaku pada semua properti jalan termasuk Banyuwangi: memiliki minimal 2 properti dalam satu grup menggandakan seluruh harga sewa (termasuk sewa berbintang). Jika kepemilikan dalam grup turun menjadi kurang dari 2 properti, sewa kembali ke harga normal sesuai jumlah bintang. Memiliki seluruh properti dalam satu grup memberi pengali tambahan 1,5x di atas bonus penggandaan; bonus ini juga berlaku pada sewa berbintang. Banyuwangi termasuk grup Oranye dan memakai bonus grup yang sama. Sewa stasiun mengikuti jumlah stasiun pemilik: 1 stasiun = 2x, 2 stasiun = 4x, dan 3 atau 4 stasiun = 6x harga beli stasiun.
-      </div>
-      <div style="margin:0 0 4px">
-       <b>⭐ Upgrade & harga jual</b><br>Upgrade hanya untuk properti jalan dan Perusahaan Air/Listrik. Biaya upgrade lebih ringan: bintang 1 = 25%, bintang 2 = 40%, bintang 3 = 55%, bintang 4 = 70%, bintang 5 = 85%, dan bintang 6 = 100% dari harga beli awal. Perusahaan Air/Listrik maksimal 3 bintang. Jatah upgrade berbayar maksimal 1 kali setiap giliran. Harga jual aset = harga beli awal + seluruh biaya upgrade yang sudah dikeluarkan.
-      </div>
-     </div>
-    </details>
-   </div>
-  </div>
- </div>
-</div>
-
-<div class="controls">
- <div id="debtChoicePanel" style="display:none;margin:12px auto;padding:12px;background:#422b18;border:2px solid #f59e0b;border-radius:10px;max-width:560px;text-align:left">
-  <div style="font-weight:bold;color:#fde68a;margin-bottom:7px">💰 UANG TIDAK CUKUP — PILIH PROPERTI DI PAPAN UNTUK DIJUAL</div>
-  <div id="debtChoiceText" class="small" style="line-height:1.6;color:#fff"></div>
-  <button id="borrowToPayBtn" type="button" style="background:#fbbf24;color:#422006;margin-top:9px">🏦 Pinjam Bank & Lanjutkan</button>
- </div>
- <div id="freeUpgradePanel" style="display:none;margin:12px auto;padding:12px;background:#173b2b;border:2px solid #facc15;border-radius:10px;max-width:560px;text-align:left">
-  <div style="font-weight:bold;color:#fde68a;margin-bottom:7px">✨ UPGRADE GRATIS — KETUK PROPERTI MILIKMU DI PAPAN</div>
-  <div id="freeUpgradeText" class="small" style="line-height:1.6;color:#fff">Pilih petak properti jalan atau perusahaan air/listrik milikmu yang masih bisa ditingkatkan. Properti terpilih akan naik 1 bintang tanpa biaya.</div>
-  <button id="cancelFreeUpgradeBtn" type="button" style="margin-top:9px;background:#94a3b8;color:#0f172a">Batal</button>
- </div>
- <div id="newGameConfirmPanel" style="display:none;margin:12px auto;padding:12px;background:#1e293b;border:2px solid #f59e0b;border-radius:10px;max-width:560px;text-align:center">
-  <div style="font-weight:bold;color:#fde68a;margin-bottom:8px">🎲 Mulai permainan baru?</div>
-  <div class="small" style="color:#fff;margin-bottom:10px">Data permainan saat ini akan diganti. Apakah kamu yakin ingin memulai dari awal?</div>
-  <button id="confirmNewGameYes" type="button" style="background:#16a34a;color:#fff">Ya, Mulai Game Baru</button>
-  <button id="confirmNewGameNo" type="button" style="background:#64748b;color:#fff">Tidak</button>
- </div>
- <div id="turnInfo">Giliran Kamu</div>
- <div id="dice">🎲 Lempar dadu</div>
- <button id="rollBtn" type="button">🎲 LEMPAR DADU</button>
- <div id="special5Choices" style="display:none;margin:12px auto;padding:12px;background:#3b1f29;border:1px solid #fb7185;border-radius:10px;max-width:520px">
-  <div style="font-weight:bold;margin-bottom:10px;color:#fecdd3">💥 Dadu Istimewa 5: pilih pemain yang kehilangan 2 aset. Pemain aktif lainnya masing-masing kehilangan 1 aset.</div>
-  <div id="special5Buttons" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"></div>
- </div>
- <div id="special3Choices" style="display:none;margin:12px auto;padding:12px;background:#1e293b;border:1px solid #facc15;border-radius:10px;max-width:520px">
-  <div id="special3Message" style="font-weight:bold;margin-bottom:10px;color:#fde68a">Pilih salah satu fitur Dadu Istimewa 3:</div>
-  <div id="special3Buttons" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-   <button type="button" data-special3="owned">1. Beli paksa properti pemain lain</button>
-   <button type="button" data-special3="empty">2. Beli petak kosong diskon 50%</button>
-   <button type="button" data-special3="cancel">3. Tidak membeli</button>
-  </div>
- </div>
- <div id="specialIntentWrap" style="display:none;margin:12px auto;text-align:center">
-  <span id="specialIntentText" role="button" tabindex="0" style="display:inline-block;color:#facc15;font-weight:bold;cursor:pointer;font-size:15px;padding:10px 14px;background:#365b47;border:1px solid #facc15;border-radius:8px">🎴 Gunakan Kartu Spesial</span>
-  <button id="payNormallyBtn" type="button" style="background:#94a3b8;color:#0f172a">Bayar tanpa kartu</button>
- </div>
- <button id="endBtn" type="button" disabled>Akhiri Giliran</button>
- <div class="actions">
-  <button id="buyBtn" disabled>Beli Properti</button>
-  <button id="upgradeBtn" disabled>Upgrade ⭐</button>
-  <button id="freeMoveBtn" disabled>Pindah Gratis ke Petak Dipilih</button>
-  <details id="gameMenu" style="flex:1 1 100%;margin:8px auto;background:#294b3b;padding:9px;border-radius:9px;max-width:520px">
-   <summary style="cursor:pointer;color:#facc15;font-weight:bold">☰ Menu</summary>
-   <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:8px"><button id="saveBtn">💾 Simpan Game</button><button id="loadBtn">▶ Lanjutkan Game</button><button id="pauseBtn">⏸ Pause Game</button><button id="newBtn">🎲 Game Baru</button></div>
-  </details>
- </div>
-</div>
-
-<div class="panel" id="specialInventoryPanel">
- <strong>🎴 Gudang Kartu Spesial</strong>
- <div id="specialInventory" class="small" style="margin-top:8px;line-height:1.8"></div>
- <button id="sellSpecialCardBtn" type="button" style="margin-top:10px;background:#fbbf24;color:#422006">💰 Jual Kartu Spesial</button>
- <div id="sellSpecialCardHint" class="small">Kartu memiliki 3 kali pemakaian. Harga jual: Rp1.000.000 (belum dipakai), Rp750.000 (sudah dipakai 1 kali), atau Rp500.000 (sudah dipakai 2 kali). Ketuk tombol untuk langsung menjual tanpa konfirmasi.</div>
- <div style="margin-top:12px;padding-top:10px;border-top:1px solid #476454">
-  <label for="aiDifficulty" style="font-weight:bold;display:block;margin-bottom:6px">🤖 Pilih Tingkat Kesulitan AI (mengatur kekuatan AI)</label>
-  <select id="aiDifficulty" style="width:100%;padding:10px;border-radius:8px;background:#172a22;color:#fff;border:1px solid #8bb89c">
-   <option value="easy">Easy</option>
-   <option value="medium" selected>Medium</option>
-   <option value="hard">Hard</option>
-   <option value="veryhard">Very Hard</option>
-  </select>
- </div>
-</div>
-<div class="panel" id="audioPanel">
- <strong>🎵 Musik & Efek Suara</strong>
- <div class="small" style="margin-top:8px">Musik berubah otomatis mengikuti jumlah pemain yang masih bertahan.</div>
- <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px">
-  <button id="musicToggle" type="button">🎼 Musik: ON</button><label class="small" for="musicVolume">Volume musik</label>
-  <input id="musicVolume" type="range" min="0" max="100" value="65" style="flex:1;min-width:110px"><span id="musicVolumeValue" class="small">65%</span>
- </div>
- <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px">
-  <button id="sfxToggle" type="button">🔊 Efek Suara: ON</button><label class="small" for="sfxVolume">Volume efek suara</label>
-  <input id="sfxVolume" type="range" min="0" max="100" value="80" style="flex:1;min-width:110px"><span id="sfxVolumeValue" class="small">80%</span>
- </div>
- <div class="small" style="margin-top:7px">Volume sudah diperkuat: semakin tinggi slider, semakin besar penguatan suara.</div>
-</div>
-
-<div class="panel">
- <strong>Riwayat permainan</strong>
- <div id="log"></div>
-</div>
-
-<script>
-"use strict";
-
-// Audio sintetis orisinal: musik tema kota/semangat/seram, dadu, langkah, pilihan, hadiah, dan penalti.
-let audioCtx=null, masterMusic=null, masterSfx=null, musicTimer=null, musicStep=0;
-let musicEnabled=true, sfxEnabled=true, musicLevel=Math.pow(.65,1.25)*3.2, sfxLevel=Math.pow(.80,1.25)*4.0;
-function boostedVolume(percent,maximum){return Math.pow(Math.max(0,Math.min(100,percent))/100,1.25)*maximum;}
-function initAudio(){
- const AC=window.AudioContext||window.webkitAudioContext;
- if(!AC)return null;
- if(!audioCtx){audioCtx=new AC();masterMusic=audioCtx.createGain();masterSfx=audioCtx.createGain();masterMusic.gain.value=musicLevel;masterSfx.gain.value=sfxLevel;masterMusic.connect(audioCtx.destination);masterSfx.connect(audioCtx.destination);}
- if(audioCtx.state==='suspended')audioCtx.resume();
- return audioCtx;
-}
-function tone(freq,duration=.12,wave='sine',volume=.25,when=0,bus='sfx',endFreq=null){
- const ctx=initAudio();if(!ctx)return;
- const osc=ctx.createOscillator(),gain=ctx.createGain(),dest=bus==='music'?masterMusic:masterSfx;
- const t=ctx.currentTime+when;osc.type=wave;osc.frequency.setValueAtTime(freq,t);
- if(endFreq)osc.frequency.exponentialRampToValueAtTime(Math.max(30,endFreq),t+duration);
- gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),t+.012);gain.gain.exponentialRampToValueAtTime(.0001,t+duration);
- osc.connect(gain);gain.connect(dest);osc.start(t);osc.stop(t+duration+.025);
-}
-const musicThemes={
- city:{notes:[196,246.94,293.66,392,329.63,293.66,246.94,220,261.63,329.63,392,349.23,293.66,246.94,220,196],wave:'triangle',beat:440,base:98,lead:.15,pad:.09},
- spirit:{notes:[293.66,392,440,587.33,523.25,440,587.33,659.25,587.33,523.25,440,392,523.25,659.25,783.99,659.25],wave:'triangle',beat:300,base:146.83,lead:.21,pad:.11},
- horror:{notes:[110,130.81,146.83,110,98,123.47,130.81,98,82.41,98,110,82.41,73.42,87.31,98,73.42],wave:'sine',beat:620,base:55,lead:.16,pad:.13}
-};
-let musicTheme='city';
-let gamePaused=false, pausedAt=null;
-function pauseGame(){
- if(gamePaused)return;if(busy){say("Tunggu sampai animasi dan pergerakan selesai sebelum pause.");return;}
- gamePaused=true;
- const overlay=document.getElementById("pauseOverlay");if(overlay)overlay.classList.add("show");
- const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent="▶ Lanjutkan Game";
- saveGame(false);
-}
-function resumeGame(){
- if(!gamePaused)return;
- gamePaused=false;
- const overlay=document.getElementById("pauseOverlay");if(overlay)overlay.classList.remove("show");
- const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent="⏸ Pause Game";
- saveGame(false);
- if(current!==0&&!gameOver&&!busy)aiTurn();
-}
-function adventureBar(){
- if(!audioCtx||!musicEnabled)return;
- const theme=musicThemes[musicTheme]||musicThemes.city;
- const n=theme.notes[musicStep%theme.notes.length];
- tone(n,.48,theme.wave,theme.lead,0,'music');
- tone(n/2,.68,'sine',theme.pad,0,'music');
- if(musicStep%4===0)tone(n*1.5,.28,theme.wave,theme.lead*.48,.12,'music');
- if(musicStep%8===0)tone(theme.base,.85,'sine',.10,0,'music');
- if(musicTheme==='horror'&&musicStep%4===2)tone(n*.5,.52,'sawtooth',.045,.2,'music');
- musicStep++;
-}
-function startAdventureMusic(){if(!musicEnabled)return;initAudio();if(musicTimer)return;adventureBar();musicTimer=setInterval(adventureBar,(musicThemes[musicTheme]||musicThemes.city).beat);}
-function stopAdventureMusic(){if(musicTimer){clearInterval(musicTimer);musicTimer=null;}}
-function updateMusicTheme(){
- const alive=players.filter(p=>!p.bankrupt).length;
- const nextTheme=alive<=2?'horror':alive===3?'spirit':'city';
- if(nextTheme===musicTheme)return;
- musicTheme=nextTheme;musicStep=0;
- if(masterMusic&&audioCtx){const target=musicLevel*(nextTheme==='horror'?1.4:1);masterMusic.gain.setTargetAtTime(target,audioCtx.currentTime,.35);}
- if(musicTimer){stopAdventureMusic();if(musicEnabled)startAdventureMusic();}
-}
-function sfx(kind='tap'){
- if(!sfxEnabled)return;initAudio();
- const patterns={tap:[[660,.055,'sine',.18,0],[880,.045,'sine',.12,.045]],dice:[[210,.11,'triangle',.3,0],[330,.09,'triangle',.28,.1],[260,.1,'triangle',.28,.2]],step:[[180,.045,'sine',.16,0],[260,.045,'sine',.12,.035]],reward:[[523,.12,'triangle',.28,0],[659,.14,'triangle',.28,.12],[784,.22,'triangle',.3,.25]],penalty:[[330,.14,'sawtooth',.2,0],[247,.2,'sawtooth',.22,.14]],card:[[660,.08,'sine',.2,0],[990,.18,'sine',.22,.09]],buy:[[440,.1,'triangle',.22,0],[554,.1,'triangle',.22,.1],[659,.18,'triangle',.24,.2]],jail:[[220,.18,'triangle',.22,0],[165,.28,'triangle',.22,.18]],turn:[[392,.1,'sine',.18,0],[523,.16,'sine',.2,.12]],destroy:[[880,.12,'sawtooth',.22,0],[440,.18,'sawtooth',.24,.12],[220,.32,'triangle',.28,.28],[110,.42,'sine',.22,.52]],storm:[[95,.35,'sawtooth',.3,0],[140,.4,'triangle',.25,.25],[65,.55,'sawtooth',.28,.6],[900,.12,'square',.2,.85],[110,.5,'triangle',.25,1]],earthquake:[[55,.45,'sawtooth',.32,0],[75,.4,'triangle',.28,.3],[42,.65,'sawtooth',.3,.65],[180,.18,'square',.2,1]],win:[[523,.16,'triangle',.25,0],[659,.16,'triangle',.27,.16],[784,.2,'triangle',.29,.32],[1046,.42,'triangle',.32,.52],[784,.2,'triangle',.22,.98],[1046,.55,'sine',.3,1.18]],lose:[[330,.2,'sawtooth',.23,0],[247,.24,'sawtooth',.25,.2],[196,.32,'triangle',.25,.45],[130,.55,'sine',.28,.78]]};
- (patterns[kind]||patterns.tap).forEach(a=>tone(a[0],a[1],a[2],a[3],a[4]));
-}
-function updateAudioControls(){
- const m=document.getElementById('musicToggle'),e=document.getElementById('sfxToggle');
- if(m)m.textContent=(musicEnabled?'🎼 Musik: ON':'🎼 Musik: OFF');
- if(e)e.textContent=(sfxEnabled?'🔊 Efek Suara: ON':'🔇 Efek Suara: OFF');
-}
-
-const money=n=>"Rp"+Math.round(n).toLocaleString("id-ID");
-const colors=["#ef4444","#3b82f6","#a855f7","#22c55e"];
-const tokens=["🔴","🔵","🟣","🟢"];
-const SAVE_KEY="monopoliIndonesiaV43";
-let availableSpecialCards=3;
-let disasterCounts={storm:0,earthquake:0};
-let disasterUnlocked={storm:false,earthquake:false};
-let aiDifficulty="medium";
-function aiSetting(){
- const settings={
-  easy:{buyChance:.12,buyReserve:220000,upgradeChance:.02,upgradeReserve:200000,jailCardChance:.02,paymentCardChance:.04},
-  medium:{buyChance:.48,buyReserve:90000,upgradeChance:.22,upgradeReserve:80000,jailCardChance:.20,paymentCardChance:.35},
-  hard:{buyChance:.82,buyReserve:35000,upgradeChance:.62,upgradeReserve:30000,jailCardChance:.65,paymentCardChance:.78},
-  veryhard:{buyChance:.98,buyReserve:10000,upgradeChance:.94,upgradeReserve:10000,jailCardChance:.95,paymentCardChance:.98}
- };
- return settings[aiDifficulty]||settings.medium;
-}
-function setAIDifficulty(value,announce=false){
- aiDifficulty=["easy","medium","hard","veryhard"].includes(value)?value:"medium";
- const el=document.getElementById("aiDifficulty");
- if(el)el.value=aiDifficulty;
- if(announce)say("Tingkat kesulitan AI diubah menjadi "+aiDifficulty.toUpperCase()+".");
-}
-
-const originalTiles=[
- {n:"MULAI",type:"go"},
- {n:"Jakarta",type:"street",p:10000,c:"#92400e",group:"Cokelat"},
- {n:"Dana Umum",type:"chest"},
- {n:"Bogor",type:"street",p:12000,c:"#92400e",group:"Cokelat"},
- {n:"Pajak Pendapatan",type:"tax",tax:10000},
- {n:"Stasiun Utara",type:"rail",p:40000},
- {n:"Bandung",type:"street",p:14000,c:"#38bdf8",group:"Biru Muda"},
- {n:"Kesempatan",type:"chance"},
- {n:"Garut",type:"street",p:16000,c:"#38bdf8",group:"Biru Muda"},
- {n:"Tasikmalaya",type:"street",p:18000,c:"#38bdf8",group:"Biru Muda"},
- {n:"Penjara",type:"jail"},
- {n:"Yogyakarta",type:"street",p:20000,c:"#ec4899",group:"Merah Muda"},
- {n:"Perusahaan Listrik",type:"utility",p:30000},
- {n:"Solo",type:"street",p:22000,c:"#ec4899",group:"Merah Muda"},
- {n:"Semarang",type:"street",p:24000,c:"#ec4899",group:"Merah Muda"},
- {n:"Stasiun Selatan",type:"rail",p:40000},
- {n:"Surabaya",type:"street",p:26000,c:"#f97316",group:"Oranye"},
- {n:"Dana Umum",type:"chest"},
- {n:"Malang",type:"street",p:28000,c:"#f97316",group:"Oranye"},
- {n:"Banyuwangi",type:"street",p:30000,c:"#f97316",group:"Oranye"},
- {n:"Parkir Bebas",type:"free"},
- {n:"Bali",type:"street",p:32000,c:"#ef4444",group:"Merah"},
- {n:"Kesempatan",type:"chance"},
- {n:"Lombok",type:"street",p:34000,c:"#ef4444",group:"Merah"},
- {n:"Sumbawa",type:"street",p:36000,c:"#ef4444",group:"Merah"},
- {n:"Stasiun Timur",type:"rail",p:50000},
- {n:"Medan",type:"street",p:38000,c:"#eab308",group:"Kuning"},
- {n:"Padang",type:"street",p:40000,c:"#eab308",group:"Kuning"},
- {n:"Perusahaan Air",type:"utility",p:40000},
- {n:"Palembang",type:"street",p:42000,c:"#eab308",group:"Kuning"},
- {n:"Masuk Penjara",type:"gotojail"},
- {n:"Makassar",type:"street",p:45000,c:"#22c55e",group:"Hijau"},
- {n:"Manado",type:"street",p:48000,c:"#22c55e",group:"Hijau"},
- {n:"Dadu Istimewa",type:"specialdie"},
- {n:"Balikpapan",type:"street",p:50000,c:"#22c55e",group:"Hijau"},
- {n:"Stasiun Barat",type:"rail",p:60000},
- {n:"Dadu Istimewa",type:"specialdie"},
- {n:"Raja Ampat",type:"street",p:80000,c:"#1e3a8a",group:"Biru Tua"},
- {n:"Pajak Mewah",type:"tax",tax:20000},
- {n:"Jayapura",type:"street",p:100000,c:"#1e3a8a",group:"Biru Tua"}
-];
-
-let tiles=JSON.parse(JSON.stringify(originalTiles));
-let players=[];
-let current=0,rolled=false,busy=false,gameOver=false;
-let selected=null,landedIndex=null,upgradeUsedThisTurn=false,debt=false,specialUsedThisTurn=false,special3Mode="",special5Mode="";
-let pendingFreeUpgrade=false;
-let pendingSpecialPayment=null;
-let pendingDebtPayment=null;
-
-function freshPlayers(){
- return [
-  {name:"Kamu",cash:500000,pos:0,owned:[],jail:0,jailAttempts:0,bankDebt:0,bankrupt:false,freeMove:false,specialCards:0,specialCardUsesLeft:3},
-  {name:"AI Biru",cash:500000,pos:0,owned:[],jail:0,jailAttempts:0,bankDebt:0,bankrupt:false,freeMove:false,specialCards:0,specialCardUsesLeft:3},
-  {name:"AI Ungu",cash:500000,pos:0,owned:[],jail:0,jailAttempts:0,bankDebt:0,bankrupt:false,freeMove:false,specialCards:0,specialCardUsesLeft:3},
-  {name:"AI Hijau",cash:500000,pos:0,owned:[],jail:0,jailAttempts:0,bankDebt:0,bankrupt:false,freeMove:false,specialCards:0,specialCardUsesLeft:3}
- ];
-}
-
-function ownerOf(i){return players.findIndex(p=>p.owned.includes(i))}
-
-/* Harga jual = harga beli awal + seluruh biaya upgrade dengan tarif baru */
-const UPGRADE_RATES=[0.25,0.40,0.55,0.70,0.85,1.00];
-function saleValue(i){
- const t=tiles[i];
- if(!t.p)return 0;
- const stars=Math.min(t.stars||0,6);
- let total=t.p;
- for(let s=0;s<stars;s++) total+=Math.round(t.p*UPGRADE_RATES[s]);
- return total;
-}
-
-function assets(p){return p.owned.reduce((sum,i)=>sum+saleValue(i),0)}
-function wealth(p){return p.cash+assets(p)-(p.bankDebt||0)}
-function log(msg){
- const d=document.createElement("div");
- d.textContent=msg;
- document.getElementById("log").prepend(d);
-}
-function say(msg){
- document.getElementById("boardStatus").textContent=msg;
- log(msg);
- const m=String(msg).toLowerCase();
- if(/menerima|mendapat|hadiah|bonus|diskon|bebas dari penjara|berhasil membeli|membeli properti|menang|melewati atau berhenti di petak mulai/.test(m))sfx('reward');
- else if(/membayar|pajak|denda|utang|bangkrut|masuk penjara|kehilangan|penalti|gagal/.test(m))sfx('penalty');
- else if(/kartu spesial|kartu kesempatan|kartu dana umum/.test(m))sfx('card');
- else if(/membeli|dibeli|upgrade/.test(m))sfx('buy');
-}
-function gridPos(i){
- if(i===0)return[11,11];
- if(i<=10)return[11,11-i];
- if(i<=20)return[21-i,1];
- if(i<=30)return[1,i-19];
- return[i-29,11];
-}
-function maxStars(i){
- const t=tiles[i];
- return t.type==="utility"?3:(t.type==="street"?6:0);
-}
-function upgradeCost(i){
- const t=tiles[i];
- const nextStar=t.stars||0;
- return Math.round(t.p*(UPGRADE_RATES[nextStar]??1));
-}
-
-function rent(i,roll){
- const t=tiles[i],owner=players[ownerOf(i)];
- if(!owner)return 0;
-
- // Sewa properti jalan = 50% harga beli + 50% harga beli per bintang.
- // Banyuwangi dihitung eksplisit agar perubahan bintangnya selalu tercermin
- // pada harga sewa di papan, panel informasi, dan saat pemain mendarat.
- if(t.type==="street"){
-  const stars=t.stars||0;
-  // Bintang dihitung terlebih dahulu; bonus grup kemudian mengalikan
-  // seluruh sewa berbintang maupun tanpa bintang.
-  let base=t.p*(0.5+(stars*0.5));
-  const groupTiles=tiles.map((x,index)=>({x,index}))
-   .filter(z=>z.x.type==="street"&&z.x.group===t.group);
-  const ownedInGroup=groupTiles.filter(z=>owner.owned.includes(z.index)).length;
-
-  // Minimal 2 properti dalam grup: sewa x2.
-  if(ownedInGroup>=2)base*=2;
-
-  // Seluruh properti dalam grup: tambahan x1,5 (menumpuk dengan x2).
-  if(groupTiles.length>0&&ownedInGroup===groupTiles.length)base*=1.5;
-  return Math.round(base);
- }
-
- // Semua petak stasiun: 1 = x2, 2 = x4, 3 atau 4 = x6.
- if(t.type==="rail"){
-  const count=owner.owned.filter(x=>tiles[x].type==="rail").length;
-  const multiplier=[0,2,4,6,6][Math.min(count,4)]||2;
-  return Math.round(t.p*multiplier);
- }
-
- // Perusahaan Air/Listrik: sewa dasar 50% harga beli,
- // setiap bintang menambah 50% harga beli.
- if(t.type==="utility"){
-  const stars=t.stars||0;
-  return Math.round(t.p*(0.5+(stars*0.5)));
- }
- return 0;
-}
-
-function boardPrice(i){
- const t=tiles[i];
- if(!t.p)return "";
- const owner=ownerOf(i);
- return owner===-1?money(t.p):money(rent(i,7));
-}
-
-function showPropertyInfo(i){
- const el=document.getElementById("propertyInfo");
-
- if(i===null||i===undefined||!tiles[i]){
-  el.innerHTML='<div class="property-info"><h2>MONOPOLI INDONESIA</h2><p>Pilih petak untuk melihat informasi properti.</p><div class="center-hint">Jelajahi Indonesia dan kumpulkan properti!</div></div>';
-  return;
- }
-
- const t=tiles[i],owner=ownerOf(i),p=owner>=0?players[owner]:null,stars=t.stars||0;
-
- if(!["street","rail","utility"].includes(t.type)){
-  let description="";
-
-  if(t.type==="go")description="Menerima Rp50.000 setiap kali melewati petak MULAI saat bergerak mengelilingi papan.";
-  else if(t.type==="tax")description="Pajak yang harus dibayar saat berhenti di sini: "+money(t.tax)+". Kartu Spesial dapat digunakan di sini jika pemain memilihnya.";
-  else if(t.type==="chance")description="Ambil kejadian Kesempatan secara acak. Bisa menerima hadiah uang atau membayar biaya.";
-  else if(t.type==="specialdie")description="Lempar 1 dadu: 1 = menerima Rp500.000; 2 = membayar utang Rp500.000; 3 = beli paksa properti pemain lain seharga nilai jualnya, beli properti kosong diskon 50%, atau batal; 4 = mendapat Kartu Spesial jika tersedia; 5 = pilih pemain yang kehilangan 2 aset acak; setiap pemain aktif lainnya kehilangan 1 aset acak. Animasi dan suara muncul, tetapi petak properti tetap ada dan kembali normal; 6 = masuk penjara 3 giliran.";
-  else if(t.type==="chest")description="Dana Umum: ambil kejadian acak untuk menerima hadiah uang atau membayar biaya.";
-  else if(t.type==="jail")description="Hanya berkunjung jika berhenti di petak ini. Jika masuk penjara, coba lempar double untuk bebas; setelah 3 percobaan otomatis bebas.";
-  else if(t.type==="free")description="Mendapat satu kesempatan pindah gratis ke petak pilihan. Saat berpindah, aturan petak tujuan tetap berlaku.";
-  else if(t.type==="gotojail")description="Langsung masuk penjara selama 3 giliran. Coba lempar double untuk bebas; setelah 3 percobaan otomatis bebas.";
-
-  el.innerHTML='<div class="property-info"><h2>'+t.n+'</h2><div class="property-status"><strong>INFORMASI PETAK</strong><br>'+description+'</div></div>';
-  return;
- }
-
- const rentBase=t.type==="rail"?t.p:(t.p*(0.5+stars*0.5));
- const rentValue=p?rent(i,7):Math.round(rentBase);
- const cap=maxStars(i);
- const upgrade=cap>0&&stars<cap?money(upgradeCost(i)):"Maksimal / tidak tersedia";
- let rentRule="";
- if(t.type==="street"){
-  rentRule="Rumus dasar sewa: 50% harga beli + 50% harga beli per bintang (maksimal 6 bintang). Bonus grup berlaku untuk semua properti jalan termasuk Banyuwangi: minimal 2 properti satu grup = sewa x2 termasuk berbintang; jika jumlah kepemilikan turun menjadi kurang dari 2, sewa kembali normal sesuai bintang. Memiliki seluruh properti dalam grup memberi pengali tambahan x1,5 di atas bonus x2. Banyuwangi termasuk grup Oranye.";
- }else if(t.type==="utility"){
-  rentRule="Rumus sewa: 50% harga beli + 50% harga beli per bintang. Maksimal 3 bintang.";
- }else{
-  const count=p?p.owned.filter(x=>tiles[x].type==="rail").length:1;
-  const multiplier=[0,2,4,6,6][Math.min(count,4)]||2;
-  rentRule="Rumus sewa stasiun berdasarkan jumlah stasiun pemilik: 1 = 2x, 2 = 4x, 3 atau 4 = 6x harga beli. Pengali pemilik saat ini: "+multiplier+"x.";
- }
- const upgradeRule=cap>0?"Biaya upgrade berikutnya memakai tarif bintang yang lebih ringan. Maksimal "+cap+" bintang.":"Stasiun tidak dapat di-upgrade.";
-
- el.innerHTML=`<div class="property-info"><h2>${t.n}</h2>
- <p style="color:${t.c||"#facc15"};font-weight:bold">${t.group||(t.type==="rail"?"Stasiun":"Perusahaan")}</p>
- <div class="property-grid">
- <div class="property-box"><small>Harga beli awal</small><strong>${money(t.p)}</strong></div>
- <div class="property-box"><small>Harga sewa saat ini</small><strong>${money(rentValue)}</strong></div>
- <div class="property-box"><small>Harga jual aset</small><strong>${money(saleValue(i))}</strong></div>
- <div class="property-box"><small>Biaya upgrade berikutnya</small><strong>${upgrade}</strong></div>
- </div>
- <div class="property-status">
- <strong>Status kepemilikan</strong><br>${p?"Dimiliki oleh "+p.name:"Belum dimiliki"}<br><br>
- <strong>Tingkat properti</strong>
- <div class="stars">${"★".repeat(stars)}${"☆".repeat(cap-stars)}</div>
- <small>${stars} dari ${cap} bintang</small><br><br>
-
- </div></div>`;
-}
-
-function buildBoard(){
- const board=document.getElementById("board");
- board.querySelectorAll(".tile").forEach(e=>e.remove());
-
- tiles.forEach((t,i)=>{
-  const el=document.createElement("div"),[r,c]=gridPos(i);
-  el.className="tile";
-
-  if(["go","jail","free","gotojail"].includes(t.type)){
-   el.classList.add("corner");
-  }
-
-  if(["chance","chest","tax","rail","utility","specialdie"].includes(t.type)){
-   el.classList.add("special");
-  }
-
-  el.style.gridRow=r;
-  el.style.gridColumn=c;
-
-  const band=t.c?'<div class="band" style="background:'+t.c+'"></div>':"";
-  el.innerHTML=band+'<div class="name"></div><div class="tokens"></div><div class="price"></div><div class="owner-mark"></div><div class="upgrade-hint" aria-hidden="true">⭐+</div> '; 
-
-  el.querySelector(".name").textContent=t.n;
-  el.querySelector(".price").textContent=t.p?money(t.p):"";
-
-  el.addEventListener("click",()=>{
-   if(pendingFreeUpgrade){
-    completeFreeUpgradeChoice(i);
-    return;
-   }
-   if(pendingDebtPayment&&pendingDebtPayment.from===0){
-    sellSelectedAssetForDebt(i);
-    return;
-   }
-   selected=i;
-   if(special3Mode==="owned"||special3Mode==="empty"){
-    completeSpecial3TileChoice(i);
-   }else render();
-  });
-
-  board.appendChild(el);
- });
-
- render();
-}
-
-function render(){
- updateMusicTheme();
- const board=document.getElementById("board");
- const els=board.querySelectorAll(".tile");
-
- els.forEach((e,i)=>{
-  e.querySelector(".tokens").textContent="";
-  e.classList.toggle("selected",selected===i);
-  e.classList.toggle("debt-sellable",!!pendingDebtPayment&&pendingDebtPayment.from===0&&players[0].owned.includes(i));
-  e.classList.toggle("free-upgrade-target",pendingFreeUpgrade&&players[0].owned.includes(i)&&["street","utility"].includes(tiles[i].type)&&(tiles[i].stars||0)<maxStars(i));
-
-  /* Harga papan berubah dari harga beli menjadi harga sewa */
-  e.querySelector(".price").textContent=boardPrice(i);
-
-  const owner=ownerOf(i);
-  const mark=e.querySelector(".owner-mark");
-
-  if(owner>=0){
-   mark.style.display="block";
-   mark.style.background=colors[owner];
-   mark.textContent=(tiles[i].stars||0)>0?String(tiles[i].stars):"";
-   mark.title="Dimiliki oleh "+players[owner].name+" • "+(tiles[i].stars||0)+" bintang";
-  }else{
-   mark.style.display="none";
-   mark.title="";
-   mark.textContent="";
-  }
-  const hint=e.querySelector(".upgrade-hint");
-  if(hint){
-   const eligible=owner===0&&current===0&&rolled&&!busy&&!gameOver&&!debt&&!upgradeUsedThisTurn&&
-    ["street","utility"].includes(tiles[i].type)&&(tiles[i].stars||0)<maxStars(i)&&players[0].cash>=upgradeCost(i);
-   hint.classList.toggle("show",!!eligible);
-  }
- });
-
- players.forEach((p,pi)=>{
-  if(p.bankrupt)return;
-  const tile=els[p.pos];
-  if(tile){
-   const tok=tile.querySelector(".tokens");
-   tok.textContent+=(tok.textContent?" ":"")+tokens[pi];
-  }
- });
-
- document.getElementById("stats").innerHTML=players.map((p,i)=>`
-  <div class="player ${p.bankrupt?'bankrupt-player':''}" style="border-left:5px solid ${colors[i]}">
-   <strong>${p.name}${i===current?" ◀":""}</strong>
-   Uang: ${money(p.cash)}<br>
-   Aset: ${money(assets(p))}<br>
-   Properti: ${p.owned.length}<br>
-   Pinjaman bank: ${money(p.bankDebt||0)} / Rp2.000.000
-   
-   ${p.jail>0?'<br>🔒 DI PENJARA: percobaan '+((p.jailAttempts||0)+1)+'/3':''}
-   ${p.bankrupt?'<br><strong>💥 BANGKRUT</strong>':''}
-  </div>`).join("");
-
- const inventory=document.getElementById("specialInventory");
-
- if(inventory){
-  const holders=players.map(p=>
-   `<span style="display:inline-block;background:#294b3b;padding:5px 8px;border-radius:7px;margin:3px">${p.name}: 🎴 ${p.specialCards||0} kartu${(p.specialCards||0)>0?" • pemakaian kartu aktif "+(p.specialCardUsesLeft||3)+"/3":""}</span>`
-  ).join("");
-
-  inventory.innerHTML=`Persediaan global: <strong>${availableSpecialCards}/3 kartu</strong><br>${holders}<br><span style="color:#cbd5e1">Kartu yang dipakai kembali ke persediaan global dan dapat ditemukan lagi.</span>`;
- }
-
- const sellBtn=document.getElementById("sellSpecialCardBtn");
- const sellHint=document.getElementById("sellSpecialCardHint");
- if(sellBtn){
-  const ownCard=players[0];
-  const count=ownCard?(ownCard.specialCards||0):0;
-  const uses=ownCard&&Number.isInteger(ownCard.specialCardUsesLeft)?ownCard.specialCardUsesLeft:3;
-  const salePrice=uses>=3?1000000:uses===2?750000:500000;
-  sellBtn.textContent=count>0?"💰 Jual Kartu Spesial — "+money(salePrice):"💰 Tidak Ada Kartu untuk Dijual";
-  sellBtn.disabled=count<=0||gameOver||busy||!!pendingSpecialPayment;
-  if(sellHint)sellHint.textContent="Pemakaian tersisa pada kartu aktif: "+(count>0?uses:0)+"/3. Harga jual kartu aktif: "+money(salePrice)+". Harga turun 25% setelah 1 kali pemakaian dan 50% setelah 2 kali pemakaian. Ketuk tombol untuk langsung menjual tanpa konfirmasi.";
- }
-
- const debtPanel=document.getElementById("debtChoicePanel");
- const debtText=document.getElementById("debtChoiceText");
- if(debtPanel&&debtText){
-  debtPanel.style.display=pendingDebtPayment?"block":"none";
-  if(pendingDebtPayment){
-   const dp=players[pendingDebtPayment.from];
-   const remaining=Math.max(0,pendingDebtPayment.amount-dp.cash);
-   debtText.innerHTML="Tagihan: <b>"+money(pendingDebtPayment.amount)+"</b><br>Uang tersedia: <b>"+money(dp.cash)+"</b><br>Masih kurang: <b>"+money(remaining)+"</b><br>Ketuk petak properti milikmu di papan untuk menjualnya ke bank. Pinjaman bank maksimal Rp2.000.000.";
-   const loanBtn=document.getElementById("borrowToPayBtn");loanBtn.style.display="inline-block";
-   loanBtn.disabled=dp.bankDebt>=2000000||remaining<=0;
-   loanBtn.textContent=dp.bankDebt>=2000000?"🏦 Batas pinjaman Rp2 juta tercapai":"🏦 Pinjam Bank (maks. Rp2 juta) & Lanjutkan";
-  }
- }
- document.getElementById("turnInfo").textContent=
-  current===0?"GILIRAN KAMU":"GILIRAN: "+players[current].name;
-
- document.getElementById("rollBtn").disabled=
-  gamePaused||busy||current!==0||(rolled&&players[0].jail<=0)||gameOver||debt||players[0].bankrupt||!!special3Mode||!!special5Mode;
-
- document.getElementById("rollBtn").textContent=
-  players[0].jail>0?"🔒 LEMPAR DADU UNTUK KELUAR":"🎲 LEMPAR DADU";
-
- document.getElementById("endBtn").disabled=
-  busy||current!==0||!rolled||gameOver||debt||!!special3Mode||!!special5Mode||!!pendingSpecialPayment;
-
- const bi=landedIndex,bt=bi!==null?tiles[bi]:null;
-
- document.getElementById("buyBtn").disabled=
-  busy||current!==0||!rolled||bi===null||gameOver||debt||!bt||
-  ownerOf(bi)!==-1||!["street","rail","utility"].includes(bt.type)||
-  players[0].cash<bt.p;
-
- const ut=selected!==null?tiles[selected]:null;
-
- document.getElementById("upgradeBtn").disabled=
-  busy||current!==0||!rolled||selected===null||gameOver||debt||
-  upgradeUsedThisTurn||ownerOf(selected)!==0||!ut||
-  !["street","utility"].includes(ut.type)||(ut.stars||0)>=maxStars(selected)||
-  players[0].cash<upgradeCost(selected);
-
- const freeMoveButton=document.getElementById("freeMoveBtn");
- freeMoveButton.style.display=players[0].freeMove?"inline-block":"none";
- freeMoveButton.disabled=busy||current!==0||!rolled||!players[0].freeMove||selected===null||gameOver||debt;
-
- const choosingSpecial5=special5Mode==="target";
- const special5Panel=document.getElementById("special5Choices");
- const special5Buttons=document.getElementById("special5Buttons");
- if(special5Panel&&special5Buttons){
-  special5Panel.style.display=choosingSpecial5?"block":"none";
-  if(choosingSpecial5){
-   const eligible=players.map((p,i)=>({p,i})).filter(x=>!x.p.bankrupt&&x.p.owned.length>0);
-   special5Buttons.innerHTML=eligible.map(x=>`<button type="button" data-special5-target="${x.i}" style="background:#fb7185;color:#3f0b16">${x.p.name} (${x.p.owned.length} aset)</button>`).join("");
-  }else special5Buttons.innerHTML="";
- }
- // Saat memilih target Dadu Istimewa 5, ganti sementara kontrol normal dengan panel pilihan.
- const endTurnButton=document.getElementById("endBtn");
- const actionsPanel=document.querySelector(".actions");
- if(endTurnButton)endTurnButton.style.display=choosingSpecial5?"none":"inline-block";
- if(actionsPanel)actionsPanel.style.display=choosingSpecial5?"none":"flex";
- const choicePanel=document.getElementById("special3Choices");
- const choiceMessage=document.getElementById("special3Message");
- const choiceButtons=document.getElementById("special3Buttons");
- if(choicePanel){
-  choicePanel.style.display=(special3Mode&&!choosingSpecial5)?"block":"none";
-  if(special3Mode==="owned"){
-   choiceMessage.textContent="Pilih petak milik pemain lain yang ingin kamu beli paksa. Harga sesuai harga jual properti.";
-   choiceButtons.style.display="none";
-  }else if(special3Mode==="empty"){
-   choiceMessage.textContent="Pilih petak properti kosong yang ingin kamu beli dengan diskon 50%.";
-   choiceButtons.style.display="none";
-  }else if(special3Mode==="menu"){
-   choiceMessage.textContent="Pilih salah satu fitur Dadu Istimewa 3:";
-   choiceButtons.style.display="flex";
-  }
- }
- const intentWrap=document.getElementById("specialIntentWrap");
- const intentText=document.getElementById("specialIntentText");
-
- const canOfferSpecial=!!pendingSpecialPayment&&current===0&&
-  (players[0].specialCards||0)>0&&!specialUsedThisTurn;
- intentWrap.style.display=(canOfferSpecial&&!choosingSpecial5)?"block":"none";
- intentText.textContent=pendingSpecialPayment?
-  "🎴 Gunakan Kartu Spesial untuk "+pendingSpecialPayment.reason:
-  "🎴 Gunakan Kartu Spesial";
- document.getElementById("payNormallyBtn").style.display=canOfferSpecial?"inline-block":"none";
-
- updateDisasterRulesInfo();
- showPropertyInfo(selected);
-}
-
-function declareBankruptcy(p){
- if(p.bankrupt)return;
- sfx("lose");
- p.bankrupt=true;
- // Semua Kartu Spesial yang masih dimiliki pemain bangkrut dikembalikan ke persediaan global.
- availableSpecialCards=Math.min(3,availableSpecialCards+(p.specialCards||0));
- p.specialCards=0;
- p.specialCardUsesLeft=3;
- p.owned.forEach(i=>{tiles[i].stars=0});
- p.owned=[];
- p.jail=0;
- p.freeMove=false;
- const survivors=players.filter(other=>other!==p&&!other.bankrupt);
- if(survivors.length===3){
-  const ranked=survivors.slice().sort((a,b)=>b.cash-a.cash);
-  ranked.forEach((other,index)=>{
-   const bonus=index===0?500000:1000000;
-   other.cash+=bonus;
-   say("🏦 Bonus bank untuk "+other.name+": "+money(bonus)+(index===0?" (uang tunai tertinggi).":"."));
-  });
-  say("💥 "+p.name+" BANGKRUT karena utang mencapai Rp5.000.000. Bonus bank dibagikan kepada 3 pemain tersisa.");
- }else if(survivors.length===2){
-  const ranked=survivors.slice().sort((a,b)=>b.cash-a.cash);
-  ranked.forEach((other,index)=>{
-   const bonus=index===0?1000000:2000000;
-   other.cash+=bonus;
-   say("🏦 Bonus bank untuk "+other.name+": "+money(bonus)+(index===0?" (uang tunai tertinggi).":"."));
-  });
-  say("💥 "+p.name+" BANGKRUT. Bonus bank dibagikan kepada 2 pemain tersisa.");
- }else{
-  say("💥 "+p.name+" BANGKRUT. Bonus bank tidak diberikan karena tersisa "+survivors.length+" pemain.");
- }
-}
-
-function sellAssetForDebt(playerIndex,required,to=null){
- const p=players[playerIndex];
- if(playerIndex===0){
-  pendingDebtPayment={from:playerIndex,to,amount:required};
-  debt=true;
-  say(p.name+" kekurangan uang untuk membayar "+money(required)+". Pilih petak properti milikmu di papan untuk dijual.");
-  render();
-  saveGame(false);
-  return false;
- }
- // AI menjual aset bernilai paling rendah secara otomatis sampai cukup.
- while(p.cash<required&&p.owned.length>0&&!p.bankrupt){
-  const chosen=p.owned.map(i=>({i,value:saleValue(i)})).sort((a,b)=>a.value-b.value)[0];
-  if(!chosen)break;
-  p.owned=p.owned.filter(i=>i!==chosen.i);
-  tiles[chosen.i].stars=0;
-  p.cash+=chosen.value;
-  say(p.name+" menjual "+tiles[chosen.i].n+" seharga "+money(chosen.value)+" untuk membayar tagihan.");
- }
- return p.cash>=required;
-}
-
-function finishDebtPayment(){
- const pending=pendingDebtPayment;
- if(!pending)return;
- const payer=players[pending.from];
- if(payer.cash<pending.amount)return;
- payer.cash-=pending.amount;
- if(pending.to!==null&&pending.to!==undefined)players[pending.to].cash+=pending.amount;
- say(payer.name+" berhasil melunasi pembayaran sebesar "+money(pending.amount)+".");
- pendingDebtPayment=null;
- debt=false;
- checkVictory();
- render();
- saveGame(false);
-}
-
-function sellSelectedAssetForDebt(index){
- const pending=pendingDebtPayment;
- if(!pending||pending.from!==0)return;
- const p=players[0];
- if(!p.owned.includes(index)){
-  say("Pilih petak properti milikmu sendiri untuk dijual.");
-  return;
- }
- const value=saleValue(index),name=tiles[index].n;
- p.owned=p.owned.filter(i=>i!==index);
- tiles[index].stars=0;
- p.cash+=value;
- say("🏦 Kamu menjual "+name+" ke bank seharga "+money(value)+". Saldo sekarang "+money(p.cash)+".");
- if(p.cash>=pending.amount)finishDebtPayment();
- else{render();saveGame(false);}
-}
-
-function borrowBankToPay(){
- const pending=pendingDebtPayment;
- if(!pending||pending.from!==0)return;
- const p=players[0];
- const needed=Math.max(0,pending.amount-p.cash);
- const available=Math.max(0,2000000-(p.bankDebt||0));
- const loan=Math.min(needed,available);
- if(loan>0){
-  p.cash+=loan;
-  p.bankDebt=(p.bankDebt||0)+loan;
-  say("🏦 Pinjaman bank sebesar "+money(loan)+" diterima untuk melanjutkan pembayaran. Total pinjaman: "+money(p.bankDebt)+".");
- }
- if(p.cash>=pending.amount){
-  finishDebtPayment();
- }else{
-  say("Batas pinjaman bank tidak mencukupi untuk melunasi tagihan. Pemain dinyatakan bangkrut.");
-  pendingDebtPayment=null;
-  debt=false;
-  declareBankruptcy(p);
-  checkVictory();
-  render();
- }
- saveGame(false);
-}
-
-function useSpecialCard(playerIndex,reason){
- const p=players[playerIndex];
-
- if(!p||p.bankrupt||(p.specialCards||0)<=0||specialUsedThisTurn)return false;
-
- if(!Number.isInteger(p.specialCardUsesLeft)||p.specialCardUsesLeft<1)p.specialCardUsesLeft=3;
- p.specialCardUsesLeft--;
- if(p.specialCardUsesLeft<=0){
-  p.specialCards--;
-  availableSpecialCards=Math.min(3,availableSpecialCards+1);
-  p.specialCardUsesLeft=3;
- }
- specialUsedThisTurn=true;
-
- say("🎴 "+p.name+" menggunakan Kartu Spesial untuk "+reason+". Sisa pemakaian kartu aktif: "+p.specialCardUsesLeft+"/3.");
- render();
- saveGame(false);
- return true;
-}
-
-function specialForPayment(playerIndex,reason,amount,to=null){
- const p=players[playerIndex];
- if(!p||(p.specialCards||0)<=0||specialUsedThisTurn)return false;
- if(playerIndex===0){
-  pendingSpecialPayment={playerIndex,reason,amount,to};
-  say("Kamu berhenti di petak yang memenuhi syarat Kartu Spesial. Pilih gunakan kartu atau bayar normal.");
-  render();
-  saveGame(false);
-  return true;
- }
- return useSpecialCard(playerIndex,reason);
-}
-
-function resolveSpecialPayment(useCard){
- const pending=pendingSpecialPayment;
- if(!pending||pending.playerIndex!==0)return;
- pendingSpecialPayment=null;
- if(useCard){
-  if(!useSpecialCard(0,pending.reason)){
-   pendingSpecialPayment=pending;
-   render();
-   return;
-  }
- }else{
-  say(players[0].name+" membayar "+(pending.reason.includes("pajak")?"pajak ":"sewa ")+money(pending.amount)+".");
-  pay(0,pending.to,pending.amount);
- }
- render();
- saveGame(false);
-}
-
-function pay(from,to,amount){
- amount=Math.max(0,Math.round(amount));
- const payer=players[from];
- if(payer.cash<amount){
-  const liquidated=sellAssetForDebt(from,amount,to);
-  if(!liquidated){
-   if(from===0)return false;
-   const needed=Math.max(0,amount-payer.cash);
-   const available=Math.max(0,2000000-(payer.bankDebt||0));
-   const loan=Math.min(needed,available);
-   if(loan>0){payer.cash+=loan;payer.bankDebt=(payer.bankDebt||0)+loan;say("🏦 "+payer.name+" meminjam "+money(loan)+" dari bank untuk membayar tagihan.");}
-   if(payer.cash<amount){
-    payer.cash-=amount;
-    payer.bankDebt=Math.max(payer.bankDebt||0,Math.max(0,-payer.cash));
-    if(payer.bankDebt>=5000000){declareBankruptcy(payer);checkVictory();render();return false;}
-    say("⚠️ "+payer.name+" memiliki saldo minus. Total utang: "+money(payer.bankDebt)+" / Rp5.000.000.");
-    if(to!==null)players[to].cash+=amount;
-    checkVictory();render();return false;
-   }
-  }
- }
- payer.cash-=amount;
- if(to!==null)players[to].cash+=amount;
- say(payer.name+" berhasil membayar "+money(amount)+".");
- checkVictory();
- render();
- return true;
-}
-
-async function animateMove(p,steps){
- for(let k=0;k<steps;k++){
-  p.pos=(p.pos+1)%40;
-  sfx('step');
-
-  if(p.pos===0){
-   p.cash+=50000;
-   say(p.name+" melewati atau berhenti di petak MULAI dan menerima "+money(50000)+".");
-  }
-
-  render();
-  await new Promise(resolve=>setTimeout(resolve,130));
- }
-}
-
-async function animateSpecialDie(pi){
- const el=document.getElementById("dice");
- let value=1;
- el.classList.add("special-dice-roll");
- for(let k=0;k<18;k++){
-  value=Math.floor(Math.random()*6)+1;
-  el.textContent="🎲 "+value;
-  sfx('dice');
-  await new Promise(resolve=>setTimeout(resolve,95));
- }
- value=Math.floor(Math.random()*6)+1;
- el.textContent="🎲 "+value;
- el.classList.remove("special-dice-roll");
- await new Promise(resolve=>setTimeout(resolve,350));
- return value;
-}
-
-function completeFreeUpgradeChoice(i){
- if(!pendingFreeUpgrade)return;
- const p=players[0],t=tiles[i];
- if(!p.owned.includes(i)||!["street","utility"].includes(t.type)||(t.stars||0)>=maxStars(i)){
-  say("Petak tersebut bukan properti milikmu yang bisa di-upgrade. Pilih petak yang diberi tanda.");
-  return;
- }
- pendingFreeUpgrade=false;
- document.getElementById("freeUpgradePanel").style.display="none";
- t.stars=(t.stars||0)+1;
- sfx("buy");
- say("✨ Upgrade berhasil! "+t.n+" sekarang memiliki "+t.stars+" bintang. Tidak ada biaya yang dipotong.");
- render();saveGame(false);
-}
-function cancelFreeUpgrade(){
- if(!pendingFreeUpgrade)return;
- pendingFreeUpgrade=false;
- document.getElementById("freeUpgradePanel").style.display="none";
- say("Pemilihan upgrade gratis dibatalkan.");
- render();
-}
-
-function chooseOwnedUpgrade(pi,free=false){
- const p=players[pi];
- const choices=p.owned.filter(i=>["street","utility"].includes(tiles[i].type)&&(tiles[i].stars||0)<maxStars(i));
- if(!choices.length){say(p.name+" tidak memiliki properti yang bisa ditingkatkan.");return false;}
- let chosen;
- if(pi===0){
-  if(free){
-   pendingFreeUpgrade=true;
-   const panel=document.getElementById("freeUpgradePanel");
-   document.getElementById("freeUpgradeText").textContent="Pilih salah satu dari "+choices.length+" properti milikmu yang tersedia. Ketuk petaknya di papan untuk menaikkan 1 bintang secara gratis.";
-   panel.style.display="block";
-   say("✨ Upgrade gratis tersedia. Ketuk properti milikmu yang ingin dinaikkan 1 bintang.");
-   render();
-   return true;
-  }
-  say("Pilih petak properti milikmu langsung di papan untuk upgrade.");
-  return false;
- }else chosen=choices[Math.floor(Math.random()*choices.length)];
- const t=tiles[chosen],cost=upgradeCost(chosen);
- if(!free&&p.cash<cost){say(p.name+" tidak cukup uang untuk upgrade.");return false;}
- if(!free)p.cash-=cost;
- t.stars=(t.stars||0)+1;
- say((free?"✨ Upgrade gratis! ":"⭐ ")+p.name+" meningkatkan "+t.n+" menjadi "+t.stars+" bintang"+(free?".":" seharga "+money(cost)+"."));
- return true;
-}
-
-function destroyRandomProperties(pi){
- const victim=players[pi];
- const targets=[];
- const own=victim.owned.slice();
- for(let n=0;n<Math.min(2,own.length);n++){
-  const k=Math.floor(Math.random()*own.length);
-  targets.push({owner:pi,index:own.splice(k,1)[0]});
- }
- players.forEach((player,idx)=>{
-  if(idx===pi||player.bankrupt||player.owned.length===0)return;
-  const otherAssets=player.owned.slice();
-  const pick=otherAssets[Math.floor(Math.random()*otherAssets.length)];
-  targets.push({owner:idx,index:pick});
- });
- if(!targets.length){
-  say("💥 Dadu Istimewa 5: tidak ada aset milik pemain yang dapat dihancurkan.");
-  special5Mode="";render();return;
- }
- // Hanya animasikan petak untuk sesaat. Data petak tidak dihapus; yang dilepas hanya kepemilikannya.
- targets.forEach(t=>{
-  const tileEl=document.querySelectorAll("#board .tile")[t.index];
-  if(tileEl)tileEl.classList.add("asset-destroying");
- });
- // Bunyi dimulai bersamaan dengan animasi ledakan.
- sfx("destroy");
- say("💥 Dadu Istimewa 5! Efek penghancuran aset dimulai: "+targets.map(t=>tiles[t.index].n+" milik "+players[t.owner].name).join(", ")+". Petak properti tetap berada di papan.");
- special5Mode="";
- render();
- // Re-apply the effect after render (render does not rebuild tile elements).
- targets.forEach(t=>{
-  const tileEl=document.querySelectorAll("#board .tile")[t.index];
-  if(tileEl)tileEl.classList.add("asset-destroying");
- });
- setTimeout(()=>{
-  targets.forEach(t=>{
-   const owner=players[t.owner];
-   owner.owned=owner.owned.filter(i=>i!==t.index);
-   tiles[t.index].stars=0;
-   const tileEl=document.querySelectorAll("#board .tile")[t.index];
-   if(tileEl)tileEl.classList.remove("asset-destroying");
-  });
-  render();
-  say("🏚️ Kepemilikan aset terpilih dihapus. Petak properti kembali normal dan tetap bisa dibeli.");
-  saveGame(false);
- },980);
-}
-
-function chooseSpecial5Target(index){
- if(current!==0||special5Mode!=="target")return;
- const p=players[index];
- if(!p||p.bankrupt||p.owned.length===0){say("Pemain itu tidak memiliki aset untuk dipilih. Silakan pilih pemain lain.");render();return;}
- special5Mode="";
- destroyRandomProperties(index);
- saveGame(false);
-}
-
-function goldDiceReward(pi,value){
- const p=players[pi];
- if(value===1){
-  p.cash+=500000;
-  say("✨ Dadu Istimewa 1: "+p.name+" menerima "+money(500000)+".");
- }else if(value===2){
-  say("⚠️ Dadu Istimewa 2: "+p.name+" harus membayar utang Rp500.000.");
-  pay(pi,null,500000);
- }else if(value===3){
-  if(pi===0){
-   special3Mode="menu";
-   say("🎲 Dadu Istimewa 3! Pilih salah satu fitur di bawah tombol lempar dadu.");
-   render();
-  }else{
-   const ownedByOthers=tiles.map((t,i)=>({t,i,owner:ownerOf(i)})).filter(x=>["street","rail","utility"].includes(x.t.type)&&x.owner>=0&&x.owner!==pi&&saleValue(x.i)<=p.cash);
-   const empty=tiles.map((t,i)=>({t,i,owner:ownerOf(i)})).filter(x=>["street","rail","utility"].includes(x.t.type)&&x.owner===-1&&Math.ceil(x.t.p*.5)<=p.cash);
-   const mode=ownedByOthers.length&&Math.random()<.5?"owned":(empty.length?"empty":"");
-   if(mode==="owned"&&ownedByOthers.length){
-    const chosen=ownedByOthers[Math.floor(Math.random()*ownedByOthers.length)];
-    const price=saleValue(chosen.i),oldOwner=players[chosen.owner];
-    oldOwner.owned=oldOwner.owned.filter(i=>i!==chosen.i);oldOwner.cash+=price;p.cash-=price;p.owned.push(chosen.i);
-    say("⚡ "+p.name+" membeli paksa "+chosen.t.n+" dari "+oldOwner.name+" seharga "+money(price)+".");
-   }else if(mode==="empty"&&empty.length){
-    const chosen=empty[Math.floor(Math.random()*empty.length)],price=Math.ceil(chosen.t.p*.5);
-    p.cash-=price;p.owned.push(chosen.i);say("🏷️ "+p.name+" membeli "+chosen.t.n+" dengan diskon 50%, seharga "+money(price)+".");
-   }else say("Dadu Istimewa 3: tidak ada properti yang memenuhi syarat.");
-  }
- }else if(value===4){
-  if(availableSpecialCards>0){p.specialCards=(p.specialCards||0)+1;if(!Number.isInteger(p.specialCardUsesLeft))p.specialCardUsesLeft=3;availableSpecialCards--;say("🎴 Dadu Istimewa 4: "+p.name+" mendapat 1 Kartu Spesial dengan 3 kali pemakaian.");}
-  else say("Dadu Istimewa 4: persediaan Kartu Spesial sedang habis.");
- }else if(value===5){
-   if(pi===0){
-    const eligible=players.some(p=>!p.bankrupt&&p.owned.length>0);
-    if(eligible){
-     special5Mode="target";
-     say("💥 Dadu Istimewa 5! Pilih pemain pada panel pilihan di bawah tombol lempar dadu. Kontrol normal akan kembali setelah pilihan dibuat.");
-     render();
-    }else say("💥 Dadu Istimewa 5: belum ada aset yang bisa dihancurkan.");
-   }else{
-    const eligible=players.map((p,i)=>({p,i})).filter(x=>!x.p.bankrupt&&x.p.owned.length>0);
-    if(eligible.length){
-     const target=eligible[Math.floor(Math.random()*eligible.length)].i;
-     destroyRandomProperties(target);
-    }else say("💥 Dadu Istimewa 5: belum ada aset yang bisa dihancurkan.");
-   }
-  }
- else if(value===6){p.pos=10;p.jail=3;p.jailAttempts=0;p.freeMove=false;landedIndex=10;selected=10;say("🔒 Dadu Istimewa 6: "+p.name+" masuk penjara selama 3 giliran!");}
-}
-
-function chooseSpecial3Mode(mode){
- if(current!==0||special3Mode!=="menu")return;
- if(mode==="cancel"){
-  special3Mode="";
-  say("Kamu memilih tidak membeli. Permainan dilanjutkan.");
-  render();saveGame(false);return;
- }
- const eligible=tiles.map((t,i)=>({t,i,owner:ownerOf(i)})).filter(x=>
-  ["street","rail","utility"].includes(x.t.type)&&
-  (mode==="owned"?x.owner>=0&&x.owner!==0&&saleValue(x.i)<=players[0].cash:
-   x.owner===-1&&Math.ceil(x.t.p*.5)<=players[0].cash)
- );
- if(!eligible.length){
-  say(mode==="owned"?"Tidak ada properti pemain lain yang bisa dibeli dengan saldo kamu.":"Tidak ada petak kosong yang bisa dibeli dengan saldo kamu.");
-  special3Mode="";render();return;
- }
- special3Mode=mode;
- say(mode==="owned"?"Pilih petak milik pemain lain di papan.":"Pilih petak kosong di papan.");
- render();
-}
-
-function completeSpecial3TileChoice(i){
- const p=players[0],t=tiles[i],owner=ownerOf(i);
- if(special3Mode==="owned"){
-  if(!["street","rail","utility"].includes(t.type)||owner<0||owner===0){say("Pilih petak properti milik pemain lain.");render();return;}
-  const price=saleValue(i);
-  if(price>p.cash){say("Saldo kamu tidak cukup untuk membeli petak ini. Pilih petak lain.");render();return;}
-  const oldOwner=players[owner];
-  oldOwner.owned=oldOwner.owned.filter(x=>x!==i);
-  oldOwner.cash+=price;
-  p.cash-=price;p.owned.push(i);
-  say("⚡ Kamu membeli paksa "+t.n+" dari "+oldOwner.name+" seharga "+money(price)+".");
- }else if(special3Mode==="empty"){
-  if(!["street","rail","utility"].includes(t.type)||owner!==-1){say("Pilih petak properti yang masih kosong.");render();return;}
-  const price=Math.ceil(t.p*.5);
-  if(price>p.cash){say("Saldo kamu tidak cukup untuk petak ini. Pilih petak lain.");render();return;}
-  p.cash-=price;p.owned.push(i);
-  say("🏷️ Kamu membeli "+t.n+" dengan diskon 50%, seharga "+money(price)+".");
- }
- special3Mode="";
- render();saveGame(false);
-}
-
-async function land(pi,roll,fromFreeMove=false){
- const p=players[pi],i=p.pos,t=tiles[i];
-
- selected=i;
- landedIndex=i;
-
- if(t.type==="go"){
-  say(p.name+" berhenti di MULAI.");
- }else if(["street","rail","utility"].includes(t.type)){
-  const owner=ownerOf(i);
-
-  if(owner===-1){
-   say(p.name+" berhenti di "+t.n+". Harga beli "+money(t.p)+".");
-
-   if(pi!==0&&p.cash>=t.p&&p.cash>aiSetting().buyReserve&&Math.random()<aiSetting().buyChance){
-    p.cash-=t.p;
-    p.owned.push(i);
-    say(p.name+" membeli "+t.n);
-   }
-  }else if(owner!==pi){
-   const amount=rent(i,roll||7);
-
-   if(pi===0&&(p.specialCards||0)>0&&!specialUsedThisTurn){
-    specialForPayment(pi,"sewa kepada "+players[owner].name,amount,owner);
-    return;
-   }else if(pi!==0&&Math.random()<aiSetting().paymentCardChance&&specialForPayment(pi,"membayar sewa kepada "+players[owner].name,amount,owner)){
-    // Kartu AI dipakai otomatis jika tersedia.
-   }else{
-    say(p.name+" membayar sewa "+money(amount)+" kepada "+players[owner].name);
-    pay(pi,owner,amount);
-   }
-  }else{
-   say(p.name+" berada di properti miliknya sendiri.");
-  }
- }else if(t.type==="tax"){
-  if(pi===0&&(p.specialCards||0)>0&&!specialUsedThisTurn){
-   specialForPayment(pi,"pajak",t.tax,null);
-   return;
-  }else if(pi!==0&&Math.random()<aiSetting().paymentCardChance&&specialForPayment(pi,"membayar pajak",t.tax,null)){
-   // Kartu AI dipakai otomatis jika tersedia.
-  }else{
-   say(p.name+" membayar pajak "+money(t.tax));
-   pay(pi,null,t.tax);
-  }
- }else if(t.type==="chest"){
-  const events=[
-   ["Menerima hadiah Dana Umum",20000],
-   ["Mendapat bonus",10000],
-   ["Membayar biaya rumah",-15000],
-   ["Mendapat hadiah",25000],
-   ["Membayar denda",-10000]
-  ];
-
-  const e=events[Math.floor(Math.random()*events.length)];
-  p.cash+=e[1];
-
-  say(p.name+" "+e[0]+": "+money(Math.abs(e[1])));
- }else if(t.type==="chance"){
-  const events=[
-   ["Mendapat bonus kesempatan",30000],
-   ["Mendapat hadiah kecil",20000],
-   ["Membayar biaya perjalanan",-15000],
-   ["Mendapat hadiah perjalanan",25000],
-   ["Membayar denda perjalanan",-10000],
-   ["Mendapat bonus keberuntungan",15000]
-  ];
-
-  const e=events[Math.floor(Math.random()*events.length)];
-  p.cash+=e[1];
-
-  say("🎁 KESEMPATAN: "+p.name+" "+e[0]+": "+money(Math.abs(e[1])));
- }else if(t.type==="specialdie"){
-  const value=await animateSpecialDie(pi);
-  say("🎲 DADU ISTIMEWA! "+p.name+" mendapatkan angka "+value+".");
-  goldDiceReward(pi,value);
- }else if(t.type==="gotojail"){
-  p.pos=10;
-  p.jail=3;
-  p.jailAttempts=0;
-  p.freeMove=false;
-  landedIndex=10;
-  selected=10;
-
-  say(p.name+" masuk penjara! Kehilangan 3 giliran berikutnya.");
- }else if(t.type==="jail"){
-  say(p.name+" hanya berkunjung ke penjara.");
- }else if(t.type==="free"){
-  if(!fromFreeMove){
-   p.freeMove=true;
-   say(p.name+" berhenti di PARKIR BEBAS. Kesempatan pindah satu kali tersedia.");
-  }else{
-   say(p.name+" tiba di Parkir Bebas melalui pemindahan.");
-  }
- }
-
- render();
- checkVictory();
-}
-
-async function rollDice(){
- if(gamePaused)return;
- if(busy||current!==0||(rolled&&players[0].jail<=0)||gameOver||debt||players[0].bankrupt)return;
-
- busy=true;
- render();
-
- document.getElementById("dice").textContent="🎲 Mengocok dadu...";
-
- let a=1,b=1;
-
- try{
-  for(let k=0;k<12;k++){
-   a=Math.floor(Math.random()*6)+1;
-   b=Math.floor(Math.random()*6)+1;
-   document.getElementById("dice").textContent="🎲 "+a+" + "+b;
-   sfx('dice');
-   await new Promise(resolve=>setTimeout(resolve,80));
-  }
-
-  document.getElementById("dice").textContent="🎲 "+a+" + "+b+" = "+(a+b);
-
-  const human=players[0];
-
-  if(human.jail>0){
-   if(human.jail>0&&a===b){
-    human.jail=0;
-    human.jailAttempts=0;
-    say("🎉 DOUBLE! Kamu bebas dari penjara dan bergerak "+(a+b)+" langkah.");
-    await animateMove(human,a+b);
-    rolled=true;
-    selected=human.pos;
-    await land(0,a+b);
-   }else if(human.jail>0){
-    human.jailAttempts=(human.jailAttempts||0)+1;
-    const left=3-human.jailAttempts;
-
-    if(left<=0){
-     human.jail=0;
-     human.jailAttempts=0;
-     say("Percobaan ketiga belum double. Kamu otomatis bebas.");
-    }else{
-     say("🔒 Belum double. Kesempatan tersisa "+left+" kali.");
-    }
-
-    busy=false;
-    render();
-    saveGame(false);
-    setTimeout(()=>nextTurn(),100);
-    return;
-   }
-  }else{
-   await animateMove(human,a+b);
-   rolled=true;
-   selected=human.pos;
-   await land(0,a+b);
-  }
-
-  if(human.bankrupt&&!gameOver){
-   setTimeout(()=>nextTurn(),600);
-  }
- }catch(err){
-  console.error(err);
-  say("Terjadi kesalahan saat menggerakkan pion.");
- }finally{
-  busy=false;
-  render();
-  saveGame(false);
- }
-}
-
-function buyProperty(){
- if(current!==0||!rolled||busy||gameOver||debt)return;
-
- const i=landedIndex;
- if(i===null||i!==players[0].pos)return;
-
- const t=tiles[i];
-
- if(!["street","rail","utility"].includes(t.type)){
-  say("Petak ini bukan properti yang bisa dibeli.");
-  return;
- }
-
- if(ownerOf(i)!==-1){
-  say("Properti ini sudah dimiliki pemain lain.");
-  return;
- }
-
- if(players[0].cash<t.p){
-  say("Uang kamu tidak cukup.");
-  return;
- }
-
- players[0].cash-=t.p;
- players[0].owned.push(i);
-
- say("Kamu membeli "+t.n+" seharga "+money(t.p)+".");
- render();
- saveGame(false);
-}
-
-function upgradeProperty(){
- if(current!==0||!rolled||busy||gameOver||debt)return;
-
- if(upgradeUsedThisTurn){
-  say("Jatah upgrade giliran ini sudah digunakan.");
-  return;
- }
-
- if(selected===null)return;
-
- const t=tiles[selected];
-
- if(ownerOf(selected)!==0||!["street","utility"].includes(t.type)||(t.stars||0)>=maxStars(selected))return;
-
- const cost=upgradeCost(selected);
-
- if(players[0].cash<cost){
-  say("Uang kamu tidak cukup untuk upgrade.");
-  return;
- }
-
- players[0].cash-=cost;
- t.stars=(t.stars||0)+1;
- upgradeUsedThisTurn=true;
-
- say(t.n+" berhasil ditingkatkan menjadi "+t.stars+" bintang. Biaya "+money(cost)+". Jatah upgrade giliran ini sudah digunakan.");
-
- render();
- saveGame(false);
-}
-
-async function freeMove(){
- if(current!==0||!rolled||busy||gameOver||debt||!players[0].freeMove||selected===null)return;
-
- const destination=selected,p=players[0];
-
- p.freeMove=false;
- p.pos=destination;
- landedIndex=destination;
-
- say("Kamu menggunakan kesempatan pindah gratis ke "+tiles[destination].n+".");
-
- await land(0,7,true);
- render();
- saveGame(false);
-}
-
-async function aiTurn(){
- if(gamePaused||gameOver)return;
- const p=players[current];
-
- if(p.bankrupt){
-  nextTurn();
-  return;
- }
-
- busy=true;
- render();
-
- say("Giliran "+p.name+"...");
-
- await new Promise(resolve=>setTimeout(resolve,650));
-
- const a=Math.floor(Math.random()*6)+1;
- const b=Math.floor(Math.random()*6)+1;
- const total=a+b;
-
- if(p.jail>0){
-  if((p.specialCards||0)>0&&!specialUsedThisTurn&&Math.random()<aiSetting().jailCardChance){
-   useSpecialCard(current,"bebas dari penjara");
-   p.jail=0;
-   p.jailAttempts=0;
-  }else if(a!==b){
-   p.jailAttempts=(p.jailAttempts||0)+1;
-   const left=3-p.jailAttempts;
-
-   if(left<=0){
-    p.jail=0;
-    p.jailAttempts=0;
-    say(p.name+" otomatis bebas setelah percobaan ketiga.");
-   }else{
-    say(p.name+" belum mendapatkan double. Sisa kesempatan "+left+" kali.");
-   }
-
-   busy=false;
-   render();
-   saveGame(false);
-
-   await new Promise(resolve=>setTimeout(resolve,600));
-   nextTurn();
-   return;
-  }else{
-   p.jail=0;
-   p.jailAttempts=0;
-   say("🎉 "+p.name+" mendapatkan DOUBLE dan bebas!");
-  }
- }
-
- document.getElementById("dice").textContent="🎲 "+a+" + "+b+" = "+total;
-
- await animateMove(p,total);
- await land(current,total);
-
- if(p.bankrupt||gameOver){
-  busy=false;
-  checkVictory();
-  render();
-  saveGame(false);
-
-  await new Promise(resolve=>setTimeout(resolve,700));
-
-  if(!gameOver)nextTurn();
-  return;
- }
-
- if(p.freeMove){
-  await new Promise(resolve=>setTimeout(resolve,400));
-
-  const destination=Math.floor(Math.random()*40);
-
-  p.freeMove=false;
-  p.pos=destination;
-
-  say(p.name+" menggunakan Parkir Bebas dan berpindah ke "+tiles[destination].n+".");
-
-  await land(current,7,true);
-
-  if(p.bankrupt||gameOver){
-   busy=false;
-   checkVictory();
-   render();
-   saveGame(false);
-
-   await new Promise(resolve=>setTimeout(resolve,700));
-
-   if(!gameOver)nextTurn();
-   return;
-  }
- }
-
- const ownStreet=p.owned.find(x=>
-  ["street","utility"].includes(tiles[x].type)&&(tiles[x].stars||0)<maxStars(x)
- );
-
- if(ownStreet!==undefined&&p.cash>upgradeCost(ownStreet)+aiSetting().upgradeReserve&&Math.random()<aiSetting().upgradeChance){
-  const cost=upgradeCost(ownStreet);
-
-  p.cash-=cost;
-  tiles[ownStreet].stars=(tiles[ownStreet].stars||0)+1;
-  upgradeUsedThisTurn=true;
-
-  say(p.name+" meningkatkan "+tiles[ownStreet].n+" menjadi "+tiles[ownStreet].stars+" bintang.");
- }
-
- busy=false;
- checkVictory();
- render();
- saveGame(false);
-
- await new Promise(resolve=>setTimeout(resolve,700));
- nextTurn();
-}
-
-function repayBankLoan(p){
- // Versi ini tidak menggunakan pinjaman atau cicilan bank.
-}
-
-
-let disasterResolving=false;
-function ensureDisasterOverlay(){
- let el=document.getElementById("disasterOverlay");
- if(!el){el=document.createElement("div");el.id="disasterOverlay";el.className="disaster-overlay";el.innerHTML='<div class="disaster-title"></div><div class="disaster-weather" aria-hidden="true"></div>';document.body.appendChild(el);}
- return el;
-}
-async function playDisaster(kind,targets){
- if(disasterResolving)return;
- disasterResolving=true;
- const wasBusy=busy;busy=true;render();
- disasterCounts[kind]=Math.min(1,(disasterCounts[kind]||0)+1);
- const overlay=ensureDisasterOverlay();
- overlay.className="disaster-overlay show "+kind;
- const title=overlay.querySelector(".disaster-title");
- const weather=overlay.querySelector(".disaster-weather");
- if(kind==="storm"){
-  title.textContent="🌪️ BADAI HUJAN PETIR! 🌧️⚡";
-  weather.textContent="🌧️ 🌧️ ⚡ 🌪️ 🌧️ ⚡ 🌧️ 🌬️";
-  say("🌪️ Badai hujan petir datang! Animasi penurunan bintang dimulai. Kejadian "+disasterCounts.storm+"/1.");
- }else{
-  title.textContent="🌎 GEMPA BUMI BESAR!";
-  weather.textContent="〰️ 💥 🌎 💥 〰️";
-  say("🌎 Gempa bumi besar mengguncang papan! Animasi properti hancur dimulai. Kejadian "+disasterCounts.earthquake+"/1.");
- }
- render();
- await new Promise(r=>setTimeout(r,2100));
- for(const item of targets){
-  const tileEl=document.querySelectorAll("#board .tile")[item.index];
-  if(kind==="storm"){
-   const before=tiles[item.index].stars||0;
-   const after=Math.floor(Math.random()*Math.min(6,before+1));
-   tiles[item.index].stars=after;
-   if(tileEl){tileEl.classList.add("storm-hit");}
-   say("⚡ "+tiles[item.index].n+" milik "+players[item.owner].name+" turun dari "+before+" menjadi "+after+" bintang!");
-  }else{
-   const owner=players[item.owner];
-   owner.owned=owner.owned.filter(i=>i!==item.index);
-   tiles[item.index].stars=0;
-   if(tileEl)tileEl.classList.add("asset-destroying","earthquake-hit");
-   say("💥 "+tiles[item.index].n+" milik "+owner.name+" hancur dan kembali kosong. Harga beli: "+money(tiles[item.index].p)+".");
-  }
-  render();
-  await new Promise(r=>setTimeout(r,650));
- }
- await new Promise(r=>setTimeout(r,350));
- // Efek suara dimainkan setelah adegan musibah selesai.
- sfx(kind==="storm"?"storm":"earthquake");
- await new Promise(r=>setTimeout(r,1250));
- overlay.className="disaster-overlay";
- document.querySelectorAll("#board .tile.storm-hit,#board .tile.earthquake-hit,#board .tile.asset-destroying").forEach(el=>el.classList.remove("storm-hit","earthquake-hit","asset-destroying"));
- disasterResolving=false;busy=wasBusy;
- updateDisasterRulesInfo();
- saveGame(false);
-}
-async function triggerDisasterIfEligible(){
- if(disasterResolving||gameOver)return;
- const activePlayers=players.filter(p=>!p.bankrupt);
- const stormTargets=[];
- const earthquakeTargets=[];
- activePlayers.forEach((p,pi)=>p.owned.forEach(i=>{
-  earthquakeTargets.push({owner:pi,index:i});
-  if((tiles[i].stars||0)>0)stormTargets.push({owner:pi,index:i});
- }));
- const totalAssets=earthquakeTargets.length;
- const totalSixStars=activePlayers.reduce((n,p)=>n+p.owned.filter(i=>(tiles[i].stars||0)===6).length,0);
- // Ambang aset hanya membuka kesempatan musibah pertama. Setelah pernah tercapai,
- // kesempatan musibah kedua tidak lagi memerlukan ambang aset gabungan.
- if(!disasterUnlocked.storm&&totalSixStars>=10)disasterUnlocked.storm=true;
- if(!disasterUnlocked.earthquake&&totalAssets>=20)disasterUnlocked.earthquake=true;
- if(stormTargets.length>0&&disasterUnlocked.storm&&(disasterCounts.storm||0)<1&&Math.random()<0.10){
-  const shuffled=stormTargets.slice().sort(()=>Math.random()-.5).slice(0,Math.min(5,stormTargets.length));
-  await playDisaster("storm",shuffled);
- }
- if(!gameOver&&earthquakeTargets.length>0&&disasterUnlocked.earthquake&&(disasterCounts.earthquake||0)<1&&Math.random()<0.10){
-  const shuffled=earthquakeTargets.slice().sort(()=>Math.random()-.5).slice(0,Math.min(5,earthquakeTargets.length));
-  await playDisaster("earthquake",shuffled);
- }
- updateDisasterRulesInfo();
-}
-
-function updateDisasterRulesInfo(){
- const status=document.getElementById("disasterRulesInfo");
- if(!status)return;
- const totalAssets=players.filter(p=>!p.bankrupt).reduce((n,p)=>n+p.owned.length,0);
- const totalSixStars=players.filter(p=>!p.bankrupt).reduce((n,p)=>n+p.owned.filter(i=>(tiles[i].stars||0)===6).length,0);
- status.innerHTML="<b>🌪️ Informasi musibah</b><br><b>Musibah badai hujan petir</b><br>"+
-  "Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 10 properti bintang 6 (saat ini "+totalSixStars+"). Status: <b>"+(disasterUnlocked.storm?"terbuka":"belum terbuka")+"</b>. Kejadian: <b>"+(disasterCounts.storm||0)+"/2</b>. Badai memilih hingga 5 properti acak milik pemain; tingkat bintangnya turun secara acak menjadi 0–5."+
-  "<br><br><b>Musibah gempa bumi</b><br>Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 20 properti (saat ini "+totalAssets+"). Status: <b>"+(disasterUnlocked.earthquake?"terbuka":"belum terbuka")+"</b>. Kejadian: <b>"+(disasterCounts.earthquake||0)+"/2</b>. Gempa menghancurkan hingga 5 properti acak milik pemain (tingkat bintang 0–5) dan mengembalikannya menjadi properti kosong.";
-}
-
-
-async function nextTurn(){
- if(gamePaused||gameOver)return;
- await triggerDisasterIfEligible();
- if(gameOver)return;
- repayBankLoan(players[current]);
-
- rolled=false;
- selected=null;
- landedIndex=null;
- debt=false;
- upgradeUsedThisTurn=false;
- specialUsedThisTurn=false;
- pendingSpecialPayment=null;
- pendingDebtPayment=null;
- debt=false;
- special3Mode="";
- special5Mode="";
-
- let count=0;
-
- const previousPlayer=current;
- do{
-  current=(current+1)%players.length;
-  count++;
- }while(players[current].bankrupt&&count<players.length);
-
- if(players.every(p=>p.bankrupt)||gameOver){
-  gameOver=true;
-  say("Permainan berakhir. Semua pemain bangkrut.");
-  render();
-  return;
- }
-
- render();
- saveGame(false);
-
- document.getElementById("dice").textContent="🎲 Giliran berikutnya";
-
- const p=players[current];
-
- if(p.jail>0){
-  say(p.name+" sedang di penjara. Sisa masa penjara: "+p.jail+" giliran.");
-  render();
-  saveGame(false);
- }
-
- if(current!==0&&!gameOver){
-  aiTurn();
- }else{
-  const history=document.getElementById("log");
-  if(history)history.scrollTo({top:0,behavior:"smooth"});
-  say(p.jail>0?
-   "🔒 Kamu di penjara. Lempar dadu untuk mencoba mendapatkan double. Sisa: "+p.jail+" giliran.":
-   "Giliran kamu. Lempar dadu! Jatah upgrade tersedia kembali."
-  );
- }
-}
-
-function endTurn(){
- if(gamePaused)return;
- if(current!==0||!rolled||busy||debt||gameOver)return;
- nextTurn();
-}
-
-function checkVictory(){
- if(gameOver)return;
-
- const active=players.filter(p=>!p.bankrupt);
- const winnerByWealth=active.find(p=>p.cash>=10000000);
-
- if(winnerByWealth){
-  gameOver=true;
-  say("🏆 "+winnerByWealth.name+" MENANG! Saldo uang tunai mencapai "+money(winnerByWealth.cash)+". Nilai properti tidak dihitung.");
- }else if(active.length===1){
-  gameOver=true;
-  say("🏆 "+active[0].name+" MENANG! Semua pemain lain bangkrut.");
- }else if(active.length===0){
-  gameOver=true;
-  say("Permainan berakhir. Semua pemain bangkrut.");
- }
-
- if(gameOver){
-  render();
-  const winner=players.find(p=>!p.bankrupt&&(p.cash>=10000000||active.length===1));
-  if(winner){
-   const info=document.getElementById("propertyInfo");
-   document.getElementById("boardInfo").style.display="none";
-   info.style.flex="1 1 100%";
-   info.innerHTML=`<div class="winner-showcase"><div class="winner-cash-rain" aria-hidden="true"><span>💵</span><span>💰</span><span>💵</span><span>💰</span><span>💵</span><span>💰</span></div><div class="winner-crown">👑</div><div class="winner-title">PEMENANG!</div><div class="winner-name">${winner.name}</div><div class="money-stack">💵 💰 💵 💰 💵</div><div class="winner-money">${money(winner.cash)}</div><div class="winner-sub">🏆 Penguasa Monopoli Indonesia 🏆</div><div class="money-stack">💰 💵 💰 💵 💰</div></div>`;
-   sfx("win");
-  }
-  document.getElementById("rollBtn").disabled=true;
-  document.getElementById("endBtn").disabled=true;
- }
-}
-
-function saveGame(show=true){
- if(busy){if(show)say("Tunggu sampai pergerakan selesai sebelum menyimpan.");return false;}
- const data={
-  players,
-  availableSpecialCards,
-  disasterCounts,
-  disasterUnlocked,
-  gamePaused,
-  aiDifficulty,
-  current,
-  rolled,
-  gameOver,
-  landedIndex,
-  upgradeUsedThisTurn,
-  specialUsedThisTurn,
-  selected,
-  special3Mode,
-  special5Mode,
-  pendingSpecialPayment,
-  pendingDebtPayment,
-  diceText:document.getElementById("dice").textContent,
-  logEntries:Array.from(document.querySelectorAll("#log div")).slice(0,100).map(x=>x.textContent),
-  tiles:tiles.map(t=>({stars:t.stars||0}))
- };
-
- try{
-  localStorage.setItem(SAVE_KEY,JSON.stringify(data));
-  if(show)say("Permainan berhasil disimpan di perangkat ini.");
-  return true;
- }catch(e){
-  if(show)say("Gagal menyimpan permainan. Pastikan browser mengizinkan penyimpanan lokal.");
- }
-}
-
-function loadGame(){
- if(busy)return;
- try{
-  const raw=localStorage.getItem(SAVE_KEY);
-
-  if(!raw){
-   say("Belum ada data permainan tersimpan.");
-   return;
-  }
-
-  const d=JSON.parse(raw);
-
-  if(!d.players||!Array.isArray(d.players)||d.players.length!==4){
-   throw new Error("Data tidak cocok");
-  }
-
-  players=d.players;
-
-  players.forEach(p=>{
-   if(typeof p.jail!=="number")p.jail=0;
-   if(typeof p.jailAttempts!=="number")p.jailAttempts=0;
-   if(typeof p.bankDebt!=="number")p.bankDebt=0;
-   if(typeof p.freeMove!=="boolean")p.freeMove=false;
-   if(typeof p.specialCards!=="number")p.specialCards=0;
-   if(!Number.isInteger(p.specialCardUsesLeft)||p.specialCardUsesLeft<1||p.specialCardUsesLeft>3)p.specialCardUsesLeft=3;
-  });
-
-  availableSpecialCards=Number.isInteger(d.availableSpecialCards)?
-   Math.max(0,Math.min(3,d.availableSpecialCards)):
-   Math.max(0,3-players.reduce((sum,p)=>sum+(p.specialCards||0),0));
-  disasterCounts={
-   storm:Math.max(0,Math.min(2,Number(d.disasterCounts&&d.disasterCounts.storm)||0)),
-   earthquake:Math.max(0,Math.min(2,Number(d.disasterCounts&&d.disasterCounts.earthquake)||0))
-  };
-  disasterUnlocked={
-   storm:!!(d.disasterUnlocked&&d.disasterUnlocked.storm)||disasterCounts.storm>0,
-   earthquake:!!(d.disasterUnlocked&&d.disasterUnlocked.earthquake)||disasterCounts.earthquake>0
-  };
-  gamePaused=!!d.gamePaused;pausedAt=null;
-  const pauseOverlay=document.getElementById("pauseOverlay");if(pauseOverlay)pauseOverlay.classList.toggle("show",gamePaused);
-  const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent=gamePaused?"▶ Lanjutkan Game":"⏸ Pause Game";
-
-  setAIDifficulty(d.aiDifficulty||aiDifficulty);
-  current=d.current||0;
-  rolled=!!d.rolled;
-  gameOver=!!d.gameOver;
-
-  tiles=JSON.parse(JSON.stringify(originalTiles));
-
-  if(d.tiles){
-   d.tiles.forEach((x,i)=>{
-    if(tiles[i])tiles[i].stars=x.stars||0;
-   });
-  }
-
-  busy=false;
-  debt=false;
-  landedIndex=Number.isInteger(d.landedIndex)?
-   d.landedIndex:(rolled?players[current].pos:null);
-
-  upgradeUsedThisTurn=!!d.upgradeUsedThisTurn;
-  specialUsedThisTurn=!!d.specialUsedThisTurn;
-  selected=Number.isInteger(d.selected)?d.selected:(rolled&&current===0?players[0].pos:null);
-  special3Mode=typeof d.special3Mode==="string"?d.special3Mode:"";
-  special5Mode="";
-  pendingSpecialPayment=d.pendingSpecialPayment||null;
-  pendingDebtPayment=d.pendingDebtPayment||null;
-  debt=!!pendingDebtPayment;
-  document.getElementById("dice").textContent=d.diceText||"🎲 Permainan dilanjutkan";
-  document.getElementById("log").innerHTML="";
-  (Array.isArray(d.logEntries)?d.logEntries:[]).slice().reverse().forEach(msg=>log(msg));
-
-  buildBoard();
-  render();
-
-  say("Permainan berhasil dilanjutkan.");
-
-  if(current!==0&&!gameOver&&!gamePaused)aiTurn();
-
- }catch(e){
-  console.error("Gagal memuat simpanan Monopoli:",e);
-  // Pulihkan ke permainan baru agar simpanan lama/rusak tidak mengunci layar awal.
-  try{localStorage.removeItem(SAVE_KEY);}catch(ignore){}
-  players=freshPlayers();
-  availableSpecialCards=3;
-  disasterCounts={storm:0,earthquake:0};
-  disasterUnlocked={storm:false,earthquake:false};
-  gamePaused=false;
-  current=0;rolled=false;busy=false;gameOver=false;selected=null;landedIndex=null;
-  upgradeUsedThisTurn=false;debt=false;specialUsedThisTurn=false;
-  special3Mode="";special5Mode="";pendingSpecialPayment=null;pendingDebtPayment=null;
-  tiles=JSON.parse(JSON.stringify(originalTiles));
-  document.getElementById("pauseOverlay").classList.remove("show");
-  document.getElementById("pauseBtn").textContent="⏸ Pause Game";
-  document.getElementById("log").innerHTML="";
-  buildBoard();render();
-  say("Simpanan lama tidak cocok, jadi permainan baru disiapkan. Ketuk LEMPAR DADU untuk mulai.");
-  saveGame(false);
- }
-}
-
-function sellSpecialCard(){
- const p=players[0];
- if(pendingSpecialPayment){say("Pilih gunakan Kartu Spesial atau bayar normal terlebih dahulu. Kartu tidak dapat dijual saat keputusan petak masih berlangsung.");return;}
- if(!p||(p.specialCards||0)<=0){say("Kamu tidak memiliki Kartu Spesial untuk dijual.");return;}
- const uses=Number.isInteger(p.specialCardUsesLeft)&&p.specialCardUsesLeft>=1&&p.specialCardUsesLeft<=3?p.specialCardUsesLeft:3;
- const salePrice=uses===3?1000000:uses===2?750000:500000;
- p.specialCards--;
- p.cash+=salePrice;
- p.specialCardUsesLeft=3;
- availableSpecialCards=Math.min(3,availableSpecialCards+1);
- sfx("reward");
- say("💰 Kartu Spesial langsung terjual seharga "+money(salePrice)+". Sisa pemakaian kartu yang dijual: "+uses+"/3.");
- checkVictory();render();saveGame(false);
-}
-
-function showNewGameConfirm(){
- document.getElementById("newGameConfirmPanel").style.display="block";
-}
-function cancelNewGame(){
- document.getElementById("newGameConfirmPanel").style.display="none";
- say("Permainan saat ini dilanjutkan. Tidak ada data yang diubah.");
-}
-function newGame(){
- document.getElementById("newGameConfirmPanel").style.display="none";
- pendingFreeUpgrade=false;
- document.getElementById("freeUpgradePanel").style.display="none";
- players=freshPlayers();
- availableSpecialCards=3;
- disasterCounts={storm:0,earthquake:0};
- disasterUnlocked={storm:false,earthquake:false};
- gamePaused=false;document.getElementById("pauseOverlay").classList.remove("show");document.getElementById("pauseBtn").textContent="⏸ Pause Game";
- tiles=JSON.parse(JSON.stringify(originalTiles));
-
- current=0;
- rolled=false;
- busy=false;
- gameOver=false;
- selected=null;
- landedIndex=null;
- upgradeUsedThisTurn=false;
- debt=false;
- specialUsedThisTurn=false;
- pendingSpecialPayment=null;
- special3Mode="";
-
- document.getElementById("log").innerHTML="";
- document.getElementById("dice").textContent="🎲 Lempar dadu";
-
- buildBoard();
- updateMusicTheme();
- render();
- document.getElementById("rollBtn").disabled=false;
- document.getElementById("endBtn").disabled=true;
-
- say("Game baru dimulai! Giliran kamu. Ketuk LEMPAR DADU untuk memulai.");
- saveGame(false);
-}
-
-document.getElementById("aiDifficulty").addEventListener("change",ev=>{
- setAIDifficulty(ev.target.value,true);
- saveGame(false);
-});
-setAIDifficulty(aiDifficulty);
-document.getElementById("rollBtn").addEventListener("click",rollDice);
-document.getElementById("borrowToPayBtn").addEventListener("click",borrowBankToPay);
-document.getElementById("sellSpecialCardBtn").addEventListener("click",sellSpecialCard);
-document.querySelectorAll("[data-special3]").forEach(btn=>btn.addEventListener("click",()=>chooseSpecial3Mode(btn.dataset.special3)));
-document.getElementById("special5Buttons").addEventListener("click",ev=>{const btn=ev.target.closest("[data-special5-target]");if(btn)chooseSpecial5Target(Number(btn.dataset.special5Target));});
-document.getElementById("endBtn").addEventListener("click",endTurn);
-
-document.getElementById("specialIntentText").addEventListener("click",()=>resolveSpecialPayment(true));
-document.getElementById("specialIntentText").addEventListener("keydown",e=>{
- if(e.key==="Enter"||e.key===" "){e.preventDefault();resolveSpecialPayment(true);}
-});
-document.getElementById("payNormallyBtn").addEventListener("click",()=>resolveSpecialPayment(false));
-
-document.getElementById("buyBtn").addEventListener("click",buyProperty);
-document.getElementById("upgradeBtn").addEventListener("click",upgradeProperty);
-document.getElementById("freeMoveBtn").addEventListener("click",freeMove);
-document.getElementById("saveBtn").addEventListener("click",()=>saveGame(true));
-document.getElementById("loadBtn").addEventListener("click",loadGame);
-document.getElementById("pauseBtn").addEventListener("click",()=>gamePaused?resumeGame():pauseGame());
-// Delegasi karena panel pause dibuat setelah skrip utama; hindari null listener yang menghentikan inisialisasi papan.
-document.addEventListener("click",ev=>{if(ev.target&&ev.target.closest&&ev.target.closest("#resumeGameBtn")){ev.preventDefault();resumeGame();}});
-window.addEventListener("pagehide",()=>saveGame(false));
-document.getElementById("newBtn").addEventListener("click",showNewGameConfirm);
-document.getElementById("confirmNewGameYes").addEventListener("click",newGame);
-document.getElementById("confirmNewGameNo").addEventListener("click",cancelNewGame);
-document.getElementById("cancelFreeUpgradeBtn").addEventListener("click",cancelFreeUpgrade);
-
-function hasSavedGame(){try{return !!localStorage.getItem(SAVE_KEY);}catch(e){return false;}}
-
-players=freshPlayers();
-
-buildBoard();
-render();
-
-if(hasSavedGame()){
- loadGame();
-}else{
- say("Selamat bermain! Modal awal setiap pemain Rp500.000. Target kemenangan Rp10.000.000 (hanya saldo tunai). Tekan LEMPAR DADU untuk memulai.");
- saveGame(false);
-}
-
-
-render();
-
-document.addEventListener('pointerdown',function(ev){
- const target=ev.target.closest('button,.tile,summary,[role="button"],select');
- if(target && !target.disabled && !['musicToggle','sfxToggle'].includes(target.id))sfx('tap');
- if(musicEnabled&&!musicTimer)startAdventureMusic();
-},true);
-document.getElementById('musicToggle').addEventListener('click',()=>{musicEnabled=!musicEnabled;if(musicEnabled)startAdventureMusic();else stopAdventureMusic();updateAudioControls();});
-document.getElementById('sfxToggle').addEventListener('click',()=>{sfxEnabled=!sfxEnabled;updateAudioControls();if(sfxEnabled)sfx('tap');});
-document.getElementById('musicVolume').addEventListener('input',ev=>{musicLevel=boostedVolume(ev.target.value,3.2);if(masterMusic)masterMusic.gain.setTargetAtTime(musicLevel*(musicTheme==='horror'?1.4:1),audioCtx.currentTime,.03);document.getElementById('musicVolumeValue').textContent=ev.target.value+'%';});
-document.getElementById('sfxVolume').addEventListener('input',ev=>{sfxLevel=boostedVolume(ev.target.value,4.0);if(masterSfx)masterSfx.gain.setTargetAtTime(sfxLevel,audioCtx.currentTime,.03);document.getElementById('sfxVolumeValue').textContent=ev.target.value+'%';});
-document.getElementById('musicVolumeValue').textContent=document.getElementById('musicVolume').value+'%';
-document.getElementById('sfxVolumeValue').textContent=document.getElementById('sfxVolume').value+'%';
-updateAudioControls();
-</script>
-
-<script>
-/* Tutup panel Informasi & aturan saat pengguna mengetuk area lain di layar. */
-document.addEventListener("pointerdown", function(event) {
-  document.querySelectorAll("#boardInfo details[open]").forEach(function(panel) {
-    if (!panel.contains(event.target)) panel.removeAttribute("open");
-  });
-}, true);
-</script>
-\n<div id="pauseOverlay" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
- <div class="pause-card">
-  <h2 id="pauseTitle">⏸ PERMAINAN DI-PAUSE</h2>
-  <p>Semua giliran permainan sedang berhenti.</p>
-  <button id="resumeGameBtn" type="button" style="background:#22c55e;color:#052e16">▶ LANJUTKAN PERMAINAN</button>
- </div>
-</div>
-<script>
-// Sinkronkan tampilan pause setelah elemen overlay tersedia di DOM.
-(function(){
- const overlay=document.getElementById("pauseOverlay");
- const btn=document.getElementById("pauseBtn");
- if(overlay)overlay.classList.toggle("show",!!gamePaused);
- if(btn)btn.textContent=gamePaused?"▶ Lanjutkan Game":"⏸ Pause Game";
- const roll=document.getElementById("rollBtn");
- if(roll&&gamePaused)roll.disabled=true;
- 
-})();
-</script>
-
-<style>
-#mabarModal{display:none;position:fixed;inset:0;z-index:12000;background:#020617eF;overflow:auto;padding:16px;align-items:center;justify-content:center}
-#mabarModal.open{display:flex}.mabar-card{width:min(520px,100%);background:#17382b;border:2px solid #facc15;border-radius:18px;padding:17px;box-shadow:0 15px 50px #0009}.mabar-card h2{color:#facc15;text-align:center;margin:4px 0 12px}.mabar-field{width:100%;padding:11px;border-radius:8px;border:1px solid #64748b;background:#0f2b21;color:white;margin:5px 0 10px}.mabar-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mabar-actions button,.mabar-card button{padding:10px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}.mabar-primary{background:#facc15;color:#422006}.mabar-secondary{background:#334155;color:white}.mabar-status{background:#0b2119;padding:10px;border-radius:8px;margin:10px 0;white-space:pre-wrap;font-size:13px}.mabar-player{display:flex;justify-content:space-between;padding:8px;background:#24513d;border-radius:7px;margin:5px 0;font-size:13px}.mabar-small{font-size:12px;color:#cbd5e1;line-height:1.5}
-</style>
-<div id="mabarModal" role="dialog" aria-modal="true" aria-labelledby="mabarTitle">
- <div class="mabar-card">
-  <h2 id="mabarTitle">🌐 MABAR ONLINE WIJAYA</h2>
-  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 pemain dan penonton diperbolehkan.</p>
-  <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" placeholder="wss://alamat-server-anda" autocomplete="url">
-  <label>Nama pemain</label><input id="mabarName" class="mabar-field" maxlength="18" placeholder="Nama kamu">
-  <div class="mabar-actions"><button id="mabarCreate" class="mabar-primary">BUAT ROOM</button><button id="mabarJoin" class="mabar-secondary">GABUNG ROOM</button></div>
-  <label>Kode Room</label><input id="mabarCode" class="mabar-field" maxlength="12" placeholder="Contoh: WIJAYA-4821" style="text-transform:uppercase">
-  <div class="mabar-actions"><button id="mabarSpectate" class="mabar-secondary">MASUK SEBAGAI PENONTON</button><button id="mabarReady" class="mabar-primary" disabled>SIAP</button></div>
-  <div id="mabarStatus" class="mabar-status">Belum terhubung. Masukkan alamat server online untuk memulai.</div>
-  <div id="mabarRoster"></div>
-  <div class="mabar-actions" style="margin-top:10px"><button id="mabarStart" class="mabar-primary" disabled>MULAI PERMAINAN</button><button id="mabarClose" class="mabar-secondary">TUTUP</button></div>
-  <p class="mabar-small">Batas giliran: 60 detik. Jika Host terputus, server tetap menjaga Room dan permainan. Fitur lobi memerlukan server online yang dijalankan terpisah.</p>
- </div>
-</div>
-<script>
-(function(){
- const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false;
- const modal=$('mabarModal'),status=$('mabarStatus'),roster=$('mabarRoster');
- function say(t){status.textContent=t}
- function send(type,data={}){if(!ws||ws.readyState!==WebSocket.OPEN){say('Belum tersambung ke server.');return}ws.send(JSON.stringify({type,...data}))}
- function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://). Untuk internet publik gunakan wss://.');return}if(!name){say('Masukkan nama pemain terlebih dahulu.');return}try{ws=new WebSocket(url)}catch(e){say('Alamat server tidak valid.');return}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.trim().toUpperCase()})};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return}if(m.type==='error'){say(m.message||'Terjadi kesalahan.');return}if(m.type==='room'){room=m.room;role=m.role||role;ready=false;$('mabarCode').value=room.code;say('Room '+room.code+' • '+(room.started?'Permainan berlangsung':'Menunggu pemain')+'\nBatas giliran: 60 detik');render(room);$('mabarReady').disabled=role==='spectator';$('mabarStart').disabled=role!=='host'||room.started;return}if(m.type==='room_update'){render(m.room);$('mabarStart').disabled=role!=='host'||m.room.started;return}if(m.type==='turn_timer'){say('Giliran pemain: '+m.playerName+'\nSisa waktu: '+m.seconds+' detik');return}if(m.type==='game_event'){say('Pembaruan permainan diterima dari server.');return}if(m.type==='info')say(m.message||'Informasi dari server.');};ws.onclose=()=>{say('Koneksi terputus. Room tetap disimpan server; sambungkan kembali dengan kode yang sama.');$('mabarReady').disabled=true;$('mabarStart').disabled=true};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
- function render(r){roster.innerHTML='<b>Daftar Room</b>';const list=[...(r.players||[]).map(p=>({...p,kind:'Pemain'})),...(r.spectators||[]).map(p=>({...p,kind:'Penonton'}))];list.forEach(p=>{const d=document.createElement('div');d.className='mabar-player';const a=document.createElement('span');a.textContent=(p.name||'Pemain')+(p.host?' 👑':'');const b=document.createElement('span');b.textContent=p.kind+(p.kind==='Pemain'?(p.ready?' • Siap':' • Belum siap'):'');d.append(a,b);roster.append(d)})}
- $('openMabar').addEventListener('click',()=>modal.classList.add('open'));$('mabarClose').addEventListener('click',()=>modal.classList.remove('open'));
- $('mabarCreate').addEventListener('click',()=>{role='host';connect('create_room')});$('mabarJoin').addEventListener('click',()=>{role='player';connect('join_room')});$('mabarSpectate').addEventListener('click',()=>{role='spectator';connect('spectate_room')});$('mabarReady').addEventListener('click',()=>{ready=!ready;send('set_ready',{ready});$('mabarReady').textContent=ready?'BATAL SIAP':'SIAP'});$('mabarStart').addEventListener('click',()=>send('start_game'));
- window.WijayaMabar={send,connected:()=>!!ws&&ws.readyState===WebSocket.OPEN,getRoom:()=>room};return
 </script>
 
 </body>
