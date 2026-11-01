@@ -61,7 +61,10 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .small{font-size:12px;color:#cbd5e1}
 .legend{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;font-size:11px;margin-top:10px}
 .legend span{display:flex;align-items:center;gap:4px}
-.dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+.dot{width:11px;height:11px;border-radius:50%;display:inline-block;box-shadow:0 0 0 2px #ffffff25}
+.tile .tokens{min-height:1.1em;text-shadow:0 1px 3px #000;letter-spacing:1px}
+.tile .tokens.token-moving{animation:tokenBounce .22s ease-in-out infinite alternate}
+@keyframes tokenBounce{from{transform:translateY(1px) scale(.92)}to{transform:translateY(-3px) scale(1.12)}}
 @media(max-width:480px){
  body{padding:5px}
  .center{inset:9%;padding:5px;border-width:2px}
@@ -96,6 +99,27 @@ button:disabled{opacity:.4;cursor:not-allowed}
 @keyframes apocBoard{from{filter:brightness(.8)}to{filter:brightness(1.2)}}
 @keyframes apocTile{from{transform:translate(0,0)}to{transform:translate(1px,-1px)}}
 @keyframes apocFire{from{filter:brightness(.85) sepia(.2)}to{filter:brightness(1.5) sepia(.6)}}
+
+/* Tingkat bot hanya disembunyikan pada lobi Mabar; tidak ada kontrol sejenis di offline. */
+#mabarBotDifficulty,
+label[for="mabarBotDifficulty"] {display:none !important}
+/* Perubahan khusus MABAR ONLINE; mode offline tidak terpengaruh. */
+body.mabar-online #gameMenu,
+body.mabar-online #aiDifficultyWrap {display:none !important}
+body.mabar-online #mabarBotDifficulty,
+body.mabar-online label[for="mabarBotDifficulty"] {display:none !important}
+body.mabar-online #dice.mabar-dice-roll {animation:mabarDiceShake .11s linear infinite}
+@keyframes mabarDiceShake {
+  0%{transform:rotate(-9deg) scale(1)}
+  50%{transform:rotate(9deg) scale(1.12)}
+  100%{transform:rotate(-9deg) scale(1)}
+}
+body.mabar-online .tile.mabar-event-flash {animation:mabarTileFlash .55s ease-in-out 2}
+@keyframes mabarTileFlash {
+  0%,100%{filter:brightness(1)}
+  50%{filter:brightness(1.9) saturate(1.5);box-shadow:0 0 16px #facc15}
+}
+
 </style>
 </head>
 <body>
@@ -106,12 +130,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 
 <div class="panel">
  <div class="stats" id="stats"></div>
- <div class="legend">
-  <span><i class="dot" style="background:#ef4444"></i>Kamu</span>
-  <span><i class="dot" style="background:#3b82f6"></i>AI Biru</span>
-  <span><i class="dot" style="background:#a855f7"></i>AI Ungu</span>
-  <span><i class="dot" style="background:#22c55e"></i>AI Hijau</span>
- </div>
+ <div class="legend" id="playerLegend" aria-label="Legenda pemain"></div>
 </div>
 
 <div class="board-wrap">
@@ -225,7 +244,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
  <div id="specialInventory" class="small" style="margin-top:8px;line-height:1.8"></div>
  <button id="sellSpecialCardBtn" type="button" style="margin-top:10px;background:#fbbf24;color:#422006">💰 Jual Kartu Spesial</button>
  <div id="sellSpecialCardHint" class="small">Kartu memiliki 3 kali pemakaian. Harga jual: Rp1.000.000 (belum dipakai), Rp750.000 (sudah dipakai 1 kali), atau Rp500.000 (sudah dipakai 2 kali). Ketuk tombol untuk langsung menjual tanpa konfirmasi.</div>
- <div style="margin-top:12px;padding-top:10px;border-top:1px solid #476454">
+ <div id="aiDifficultyWrap" style="margin-top:12px;padding-top:10px;border-top:1px solid #476454">
   <label for="aiDifficulty" style="font-weight:bold;display:block;margin-bottom:6px">🤖 Pilih Tingkat Kesulitan AI (mengatur kekuatan AI)</label>
   <select id="aiDifficulty" style="width:100%;padding:10px;border-radius:8px;background:#172a22;color:#fff;border:1px solid #8bb89c">
    <option value="easy">Easy</option>
@@ -331,6 +350,10 @@ function updateAudioControls(){
  if(m)m.textContent=(musicEnabled?'🎼 Musik: ON':'🎼 Musik: OFF');
  if(e)e.textContent=(sfxEnabled?'🔊 Efek Suara: ON':'🔇 Efek Suara: OFF');
 }
+
+// Buka AudioContext saat interaksi pengguna pertama (khususnya browser Android).
+document.addEventListener("pointerdown",()=>{initAudio();},{once:true,passive:true});
+document.addEventListener("keydown",()=>{initAudio();},{once:true});
 
 const money=n=>"Rp"+Math.round(n).toLocaleString("id-ID");
 const colors=["#ef4444","#3b82f6","#a855f7","#22c55e"];
@@ -621,6 +644,16 @@ function buildBoard(){
 
 function render(){
  updateMusicTheme();
+ const legend=document.getElementById("playerLegend");
+ if(legend){
+  legend.textContent="";
+  players.forEach((p,i)=>{
+   const item=document.createElement("span"),dot=document.createElement("i");
+   dot.className="dot";dot.style.background=colors[i];
+   item.append(dot,document.createTextNode((p.name||("Pemain "+(i+1)))+(p.bankrupt?" (Bangkrut)":"")));
+   legend.appendChild(item);
+  });
+ }
  const board=document.getElementById("board");
  const els=board.querySelectorAll(".tile");
 
@@ -1672,9 +1705,10 @@ function updateDisasterRulesInfo(){
  if(!status)return;
  const totalAssets=players.filter(p=>!p.bankrupt).reduce((n,p)=>n+p.owned.length,0);
  const totalSixStars=players.filter(p=>!p.bankrupt).reduce((n,p)=>n+p.owned.filter(i=>(tiles[i].stars||0)===6).length,0);
+ const disasterMax=mabarNetworkMode?1:2;
  status.innerHTML="<b>🌪️ Informasi musibah</b><br><b>Musibah badai hujan petir</b><br>"+
-  "Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 10 properti bintang 6 (saat ini "+totalSixStars+"). Status: <b>"+(disasterUnlocked.storm?"terbuka":"belum terbuka")+"</b>. Kejadian: <b>"+(disasterCounts.storm||0)+"/2</b>. Badai memilih hingga 5 properti acak milik pemain; tingkat bintangnya turun secara acak menjadi 0–5."+
-  "<br><br><b>Musibah gempa bumi</b><br>Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 20 properti (saat ini "+totalAssets+"). Status: <b>"+(disasterUnlocked.earthquake?"terbuka":"belum terbuka")+"</b>. Kejadian: <b>"+(disasterCounts.earthquake||0)+"/2</b>. Gempa menghancurkan hingga 5 properti acak milik pemain (tingkat bintang 0–5) dan mengembalikannya menjadi properti kosong.";
+  "Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 10 properti bintang 6 (saat ini "+totalSixStars+"). Status: <b>"+(disasterUnlocked.storm?"terbuka":"belum terbuka")+"</b>. Kejadian: <b>"+(disasterCounts.storm||0)+"/"+disasterMax+"</b>. Badai memilih hingga 5 properti acak milik pemain; tingkat bintangnya turun secara acak menjadi 0–5."+
+  "<br><br><b>Musibah gempa bumi</b><br>Peluang 10% setiap pemeriksaan. Syarat pembuka pertama: gabungan 20 properti (saat ini "+totalAssets+"). Status: <b>"+(disasterUnlocked.earthquake?"terbuka":"belum terbuka")+"</b>. Kejadian: <b>"+(disasterCounts.earthquake||0)+"/"+disasterMax+"</b>. Gempa menghancurkan hingga 5 properti acak milik pemain (tingkat bintang 0–5) dan mengembalikannya menjadi properti kosong.";
 }
 
 
@@ -1936,6 +1970,7 @@ function cancelNewGame(){
  say("Permainan saat ini dilanjutkan. Tidak ada data yang diubah.");
 }
 function newGame(){
+ document.body.classList.remove("mabar-online");
  document.getElementById("newGameConfirmPanel").style.display="none";
  pendingFreeUpgrade=false;
  document.getElementById("freeUpgradePanel").style.display="none";
@@ -1991,6 +2026,8 @@ function mabarSetupGame(roomPlayers, seat, isHost){
  mabarNetworkMode=false;mabarNetworkHost=!!isHost;mabarMySeat=Number(seat)||0;mabarRemoteAction=false;
  newGame();
  mabarNetworkMode=true;
+ document.body.classList.add("mabar-online");
+ mabarLastDiceText=null;mabarLastLogHead=null;mabarDiceAnimationId++;mabarVisualMoveId++;
  lockLocalOnlyControls();
  const base=freshPlayers();
  const sorted=(roomPlayers||[]).slice().sort((a,b)=>a.seatIndex-b.seatIndex);
@@ -2001,8 +2038,80 @@ function mabarSetupGame(roomPlayers, seat, isHost){
  current=0;rolled=false;busy=false;gameOver=false;selected=null;landedIndex=null;
  buildBoard();render();say("Room multiplayer aktif. Semua pemain berbagi satu papan. Giliran pertama: "+players[0].name+".");saveGame(false);
 }
+let mabarVisualMoveId=0;
+let mabarDiceAnimationId=0;
+let mabarLastDiceText=null;
+let mabarLastLogHead=null;
+
+async function animateMabarRemoteDice(finalText){
+ const id=++mabarDiceAnimationId;
+ const el=document.getElementById("dice");
+ if(!el)return;
+ el.classList.add("mabar-dice-roll");
+ for(let k=0;k<12;k++){
+  if(id!==mabarDiceAnimationId)return;
+  const a=1+Math.floor(Math.random()*6),b=1+Math.floor(Math.random()*6);
+  el.textContent="🎲 "+a+" + "+b;
+  sfx("dice");
+  await new Promise(resolve=>setTimeout(resolve,85));
+ }
+ if(id!==mabarDiceAnimationId)return;
+ el.textContent=finalText||"🎲";
+ el.classList.remove("mabar-dice-roll");
+}
+
+function playMabarLogEffects(entries){
+ if(!Array.isArray(entries)||!entries.length)return;
+ const head=String(entries[0]||"");
+ if(mabarLastLogHead===null){mabarLastLogHead=head;return;}
+ if(head===mabarLastLogHead)return;
+ const fresh=[];
+ for(const item of entries){
+  if(String(item)===mabarLastLogHead)break;
+  fresh.push(String(item));
+ }
+ mabarLastLogHead=head;
+ fresh.slice(0,4).reverse().forEach(msg=>{
+  const t=msg.toLowerCase();
+  if(/badai|hujan petir/.test(t))sfx("storm");
+  else if(/gempa/.test(t))sfx("earthquake");
+  else if(/hancur|menghancurkan|kehilangan aset/.test(t))sfx("destroy");
+  else if(/penjara|dipenjara/.test(t))sfx("jail");
+  else if(/membeli|upgrade|meningkatkan/.test(t))sfx("buy");
+  else if(/membayar|membayar sewa|pajak|denda|utang/.test(t))sfx("penalty");
+  else if(/menerima|mendapat|hadiah|bonus|bebas dari penjara/.test(t))sfx("reward");
+  else if(/giliran/.test(t))sfx("turn");
+ });
+}
+
+async function animateMabarRemoteMoves(oldPositions,targetPositions){
+ const id=++mabarVisualMoveId,movers=[];
+ players.forEach((p,i)=>{
+  const from=oldPositions[i],to=targetPositions[i];
+  if(!p.bankrupt&&Number.isInteger(from)&&Number.isInteger(to)&&from!==to){
+   const steps=(to-from+40)%40;
+   if(steps>0&&steps<=12)movers.push({i,from,to,steps});
+  }
+ });
+ if(!movers.length)return;
+ movers.forEach(m=>{players[m.i].pos=m.from;});
+ render();
+ const maxSteps=Math.max(...movers.map(m=>m.steps));
+ for(let step=1;step<=maxSteps;step++){
+  if(id!==mabarVisualMoveId)return;
+  movers.forEach(m=>{if(step<=m.steps)players[m.i].pos=(m.from+step)%40;});
+  sfx("step");render();
+  await new Promise(resolve=>setTimeout(resolve,125));
+ }
+ if(id!==mabarVisualMoveId)return;
+ movers.forEach(m=>{players[m.i].pos=m.to;});
+ render();
+}
 function mabarApplyState(d){
  if(!d||!Array.isArray(d.players)||d.players.length!==4)return;
+ const oldPositions=players.map(p=>Number.isInteger(p?.pos)?p.pos:null);
+ const targetPositions=d.players.map(p=>Number.isInteger(p?.pos)?p.pos:null);
+ const animateMoves=mabarNetworkMode&&oldPositions.some((pos,i)=>pos!==null&&targetPositions[i]!==null&&pos!==targetPositions[i]);
  mabarApplyingState=true;
  try{
   players=d.players.map(p=>({...p}));current=Number(d.current)||0;rolled=!!d.rolled;gameOver=!!d.gameOver;
@@ -2014,11 +2123,18 @@ function mabarApplyState(d){
   tiles=JSON.parse(JSON.stringify(originalTiles));(d.tiles||[]).forEach((x,i)=>{if(tiles[i])tiles[i].stars=x.stars||0;});
   const overlay=document.getElementById("pauseOverlay");if(overlay)overlay.classList.toggle("show",gamePaused);
   const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent=gamePaused?"▶ Lanjutkan Game":"⏸ Pause Game";
-  const dice=document.getElementById("dice");if(dice)dice.textContent=d.diceText||"🎲";
+  const dice=document.getElementById("dice");
+  const nextDiceText=d.diceText||"🎲";
+  const diceChanged=mabarLastDiceText!==null&&nextDiceText!==mabarLastDiceText;
+  if(dice)dice.textContent=nextDiceText;
   const history=document.getElementById("log");if(history){history.innerHTML="";(d.logEntries||[]).slice().reverse().forEach(msg=>log(msg));}
-  buildBoard();render();
+  render();
   if(gameOver)checkVictory();
+  playMabarLogEffects(d.logEntries||[]);
+  if(diceChanged&&/\d/.test(nextDiceText))animateMabarRemoteDice(nextDiceText);
+  mabarLastDiceText=nextDiceText;
  }finally{mabarApplyingState=false;}
+ if(animateMoves)animateMabarRemoteMoves(oldPositions,targetPositions);
 }
 function mabarHandleHostAction(action,seatIndex,selectedIndex){
  if(!mabarNetworkHost||current!==Number(seatIndex)||busy||gameOver||mabarRemoteAction)return;
