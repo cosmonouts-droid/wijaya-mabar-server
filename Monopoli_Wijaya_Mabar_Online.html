@@ -425,9 +425,20 @@ const originalTiles=[
 let tiles=JSON.parse(JSON.stringify(originalTiles));
 let players=[];
 let current=0,rolled=false,busy=false,gameOver=false;
-let mabarNetworkMode=false,mabarNetworkHost=false,mabarMySeat=0,mabarRemoteAction=false,mabarApplyingState=false;
-function mabarCanControl(){return current===mabarMySeat||(mabarNetworkHost&&mabarRemoteAction);}
-function mabarRequest(action,extra={}){if(!mabarNetworkMode)return false;if(window.WijayaMabar&&window.WijayaMabar.requestAction)window.WijayaMabar.requestAction(action,{selected:Number.isInteger(selected)?selected:null,...extra});return true;}
+let mabarNetworkMode=false,mabarNetworkHost=false,mabarMySeat=0,mabarMyNetworkId=null,mabarRemoteAction=false,mabarApplyingState=false;
+function mabarCanControl(){
+ if(mabarNetworkHost&&mabarRemoteAction)return true;
+ if(!mabarNetworkMode)return true;
+ const active=players[current];
+ return !!active&&(mabarMyNetworkId?active.networkId===mabarMyNetworkId:current===mabarMySeat);
+}
+function mabarRequest(action,extra={}){
+ if(!mabarNetworkMode)return false;
+ const api=window.WijayaMabar;
+ if(!api||!api.connected||!api.connected()){say("Koneksi Mabar terputus. Sambungkan kembali ke Room untuk melanjutkan.");return true;}
+ if(!api.requestAction(action,{selected:Number.isInteger(selected)?selected:null,...extra}))say("Aksi belum terkirim. Periksa koneksi Room.");
+ return true;
+}
 function mabarPublishState(data){if(mabarNetworkMode&&mabarNetworkHost&&!mabarApplyingState&&window.WijayaMabar&&window.WijayaMabar.publishState)window.WijayaMabar.publishState(data);}
 
 let selected=null,landedIndex=null,upgradeUsedThisTurn=false,debt=false,specialUsedThisTurn=false,special3Mode="",special5Mode="";
@@ -2031,6 +2042,7 @@ function mabarSetupGame(roomPlayers, seat, isHost){
  lockLocalOnlyControls();
  const base=freshPlayers();
  const sorted=(roomPlayers||[]).slice().sort((a,b)=>a.seatIndex-b.seatIndex);
+ mabarMyNetworkId=sorted.find(x=>Number(x.seatIndex)===mabarMySeat)?.id||null;
  players=base.map((p,i)=>{
   const meta=sorted[i]||{};
   return {...p,name:meta.name||p.name,networkId:meta.id||null,isBot:!!meta.isBot,isRemoteHuman:!meta.isBot&&i!==mabarMySeat};
@@ -2085,27 +2097,19 @@ function playMabarLogEffects(entries){
 }
 
 async function animateMabarRemoteMoves(oldPositions,targetPositions){
- const id=++mabarVisualMoveId,movers=[];
+ // Animasi hanya pada tampilan token. Posisi permainan tidak pernah diputar
+ // mundur ke snapshot lama sehingga giliran dan koordinat server tetap konsisten.
+ const id=++mabarVisualMoveId,changed=[];
  players.forEach((p,i)=>{
-  const from=oldPositions[i],to=targetPositions[i];
-  if(!p.bankrupt&&Number.isInteger(from)&&Number.isInteger(to)&&from!==to){
-   const steps=(to-from+40)%40;
-   if(steps>0&&steps<=12)movers.push({i,from,to,steps});
-  }
+  if(!p.bankrupt&&Number.isInteger(oldPositions[i])&&Number.isInteger(targetPositions[i])&&oldPositions[i]!==targetPositions[i])changed.push(i);
  });
- if(!movers.length)return;
- movers.forEach(m=>{players[m.i].pos=m.from;});
- render();
- const maxSteps=Math.max(...movers.map(m=>m.steps));
- for(let step=1;step<=maxSteps;step++){
-  if(id!==mabarVisualMoveId)return;
-  movers.forEach(m=>{if(step<=m.steps)players[m.i].pos=(m.from+step)%40;});
-  sfx("step");render();
-  await new Promise(resolve=>setTimeout(resolve,125));
- }
+ if(!changed.length)return;
+ const tokens=document.querySelectorAll(".tokens");
+ tokens.forEach(el=>{el.classList.remove("token-moving");void el.offsetWidth;el.classList.add("token-moving");});
+ sfx("step");
+ await new Promise(resolve=>setTimeout(resolve,260));
  if(id!==mabarVisualMoveId)return;
- movers.forEach(m=>{players[m.i].pos=m.to;});
- render();
+ tokens.forEach(el=>el.classList.remove("token-moving"));
 }
 function mabarApplyState(d){
  if(!d||!Array.isArray(d.players)||d.players.length!==4)return;
@@ -2114,7 +2118,8 @@ function mabarApplyState(d){
  const animateMoves=mabarNetworkMode&&oldPositions.some((pos,i)=>pos!==null&&targetPositions[i]!==null&&pos!==targetPositions[i]);
  mabarApplyingState=true;
  try{
-  players=d.players.map(p=>({...p}));current=Number(d.current)||0;rolled=!!d.rolled;gameOver=!!d.gameOver;
+  mabarVisualMoveId++;
+  players=d.players.map(p=>({...p}));current=Number.isInteger(d.current)?d.current:0;rolled=!!d.rolled;gameOver=!!d.gameOver;
   availableSpecialCards=Number.isInteger(d.availableSpecialCards)?d.availableSpecialCards:3;
   disasterCounts=d.disasterCounts||{storm:0,earthquake:0};disasterUnlocked=d.disasterUnlocked||{storm:false,earthquake:false};
   aiDifficulty=d.aiDifficulty||aiDifficulty;gamePaused=!!d.gamePaused;landedIndex=Number.isInteger(d.landedIndex)?d.landedIndex:null;
@@ -2266,16 +2271,26 @@ document.addEventListener("pointerdown", function(event) {
 (function(){
  const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false,lastRevision=0,resumeToken=null;
  const modal=$('mabarModal'),status=$('mabarStatus'),roster=$('mabarRoster');
+ let actionPending=false,actionTimeout=null;
  // Gunakan host/domain halaman ini agar tombol lobi tidak tersambung ke server lama.
  if(!$('mabarServer').value.trim()) $('mabarServer').value=(location.protocol==='https:'?'wss://':'ws://')+location.host;
  function say(t){status.textContent=t}
  function send(type,data={}){if(!ws||ws.readyState!==WebSocket.OPEN){say('Belum tersambung ke server.');return false;}ws.send(JSON.stringify({type,...data}));return true;}
- function requestAction(action,extra={}){if(!ws||ws.readyState!==WebSocket.OPEN||!room?.started)return false;send('player_action',{action,revision:lastRevision,selected:Number.isInteger(window.WijayaMabarSelected)?window.WijayaMabarSelected:null,...extra});return true;}
+ function requestAction(action,extra={}){
+  if(!ws||ws.readyState!==WebSocket.OPEN||!room?.started)return false;
+  if(actionPending)return false;
+  actionPending=true;
+  const ok=send('player_action',{action,revision:lastRevision,selected:Number.isInteger(window.WijayaMabarSelected)?window.WijayaMabarSelected:null,...extra});
+  if(!ok){actionPending=false;return false;}
+  clearTimeout(actionTimeout);
+  actionTimeout=setTimeout(()=>{actionPending=false;say('Server belum merespons. Coba lagi setelah koneksi stabil.');},8000);
+  return true;
+ }
  function publishState(state){if(isHost&&room?.started)send('game_state',{state,baseRevision:lastRevision});}
  function updateStart(r){const humans=(r.players||[]).filter(p=>!p.isBot&&p.ready).length;const bots=(r.players||[]).filter(p=>p.isBot).length;$('mabarStart').disabled=role!=='host'||!!r.started||humans<1||(humans<2&&bots<1)||humans+bots<2;$('mabarAddBot').disabled=role!=='host'||!!r.started||bots>=3||(r.players||[]).length>=4;}
  function render(r){const humans=(r.players||[]).filter(p=>!p.isBot).length;const bots=(r.players||[]).filter(p=>p.isBot).length;roster.innerHTML='<b>Daftar Room</b><div class="mabar-small">Pemain manusia: '+humans+' • Bot siap: '+bots+' • Total: '+(r.players||[]).length+'/4</div>';const list=[...(r.players||[]).map(p=>({...p,kind:p.isBot?'Bot':'Pemain'})),...(r.spectators||[]).map(p=>({...p,kind:'Penonton'}))];list.forEach(p=>{const d=document.createElement('div');d.className='mabar-player';const a=document.createElement('span');a.textContent=(p.name||'Pemain')+(p.host?' 👑':'');const b=document.createElement('span');b.textContent=p.kind+(p.kind==='Bot'?' • Siap':(p.kind==='Pemain'?(p.ready?' • Siap':' • Belum siap'):''));d.append(a,b);roster.append(d)});}
  function handleMessage(m){
-  if(m.type==='error'){say(m.message||'Terjadi kesalahan.');return;}
+  if(m.type==='error'){actionPending=false;clearTimeout(actionTimeout);say(m.message||'Terjadi kesalahan.');return;}
   if(m.type==='room'||m.type==='room_update'){
    room=m.room; if(m.type==='room'){role=m.role||role;playerId=m.playerId||playerId;resumeToken=m.resumeToken||resumeToken;if(resumeToken&&room.code)localStorage.setItem('wijaya-resume-'+room.code,resumeToken);mySeat=role==='spectator'?-1:Number(m.seatIndex??room.players.find(p=>p.id===playerId)?.seatIndex??0);isHost=role==='host';if(room.started)mabarNetworkMode=true;}
    ready=!!room.players.find(p=>p.id===playerId)?.ready;$('mabarCode').value=room.code;say('Room '+room.code+' • '+(room.started?'Permainan berlangsung':'Menunggu pemain')+'\nPeserta: '+room.players.length+'/4 • Bot siap: '+(room.botCount||0));render(room);
@@ -2295,7 +2310,8 @@ document.addEventListener("pointerdown", function(event) {
   }
   if(m.type==='host_action'||m.type==='host_turn_timeout'||m.type==='controller_changed'||m.type==='controller_state'||m.type==='controller_status')return;
   if(m.type==='game_state'){
-   lastRevision=Number(m.revision)||lastRevision;
+   actionPending=false;clearTimeout(actionTimeout);
+   lastRevision=Number.isInteger(m.revision)?m.revision:lastRevision;
    mabarNetworkMode=true;mabarNetworkHost=false;
    window.WijayaMabarGame.applyState(m.state);
    const turn=m.turn;if(m.state?.gameOver)say('Permainan berakhir. Semua pemain manusia telah keluar atau permainan telah selesai. Buat Room baru untuk bermain kembali.');else if(turn)say('Room '+(room?.code||'')+' • Giliran: '+turn.playerName+(turn.isBot?' (Bot)':''));return;

@@ -440,7 +440,9 @@ function startGame(r) {
   r.players.sort((a,b)=>a.seatIndex-b.seatIndex);
   r.players.forEach(p=>{p.ready=true;});
   r.started=true;r.revision=0;
-  r.gameState=initialState(r.players.map(p=>({id:p.id,name:p.name,isBot:p.isBot,seatIndex:p.seatIndex,connected:p.connected})));
+  r.gameState=initialState(r.players.map((p,index)=>({id:p.id,name:p.name,isBot:p.isBot,seatIndex:index,connected:p.connected})));
+  // Pastikan indeks array state dan nomor kursi pemain selalu sama.
+  r.players.forEach((p,index)=>{p.seatIndex=index;});
   r.gameState.aiDifficulty=r.aiDifficulty||'medium';
   addLog(r.gameState,`Tingkat kesulitan Bot: ${String(r.gameState.aiDifficulty).toUpperCase()}.`);
   addLog(r.gameState,'Server menjadi pengendali utama permainan.');
@@ -526,7 +528,13 @@ wss.on('connection',ws=>{
     if(m.type==='player_action') {
       if(!r.started||!p||p.isBot)return actionError(ws,'Pemain tidak aktif.');
       const g=r.gameState,seat=p.seatIndex;
-      if(g.current!==seat)return actionError(ws,'Belum giliran kamu.');
+      const seated=g.players[seat];
+      if(!seated||seated.id!==p.id)return actionError(ws,'Identitas kursi pemain tidak cocok. Keluar lalu gabung kembali ke Room.');
+      if(g.current!==seat){
+        send(ws,{type:'error',message:'Belum giliran kamu. Giliran sekarang: '+(g.players[g.current]?.name||'Pemain')+'.'});
+        send(ws,stateMessage(r));
+        return;
+      }
       if(g.gameOver)return actionError(ws,'Permainan sudah berakhir.');
       const a=m.action;
       if(a==='roll') {
