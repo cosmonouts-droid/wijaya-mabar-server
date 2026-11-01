@@ -351,55 +351,53 @@ wss.on('connection', ws => {
     }
 
     if (m.type === 'start_game') {
-      if (c.id !== r.hostId) {
-        return send(ws, {
-          type: 'error',
-          message: 'Hanya Host yang dapat memulai.'
-        });
-      }
+  if (c.id !== r.hostId) {
+    return send(ws, {
+      type: 'error',
+      message: 'Hanya Host yang dapat memulai.'
+    });
+  }
 
-      const humans = r.players.filter(x => !x.isBot);
+  const humans = r.players.filter(x => !x.isBot);
 
-      if (
-        r.started ||
-        humans.length !== r.humanTarget ||
-        !humans.every(x => x.ready)
-      ) {
-        return send(ws, {
-          type: 'error',
-          message: 'Jumlah pemain belum sesuai atau pemain belum siap.'
-        });
-      }
+  if (r.started || humans.length < 1 || humans.length > 4) {
+    return send(ws, {
+      type: 'error',
+      message: 'Room tidak dapat dimulai.'
+    });
+  }
 
-      const botCount = 4 - humans.length;
+  // Isi semua kursi kosong dengan komputer
+  const botCount = 4 - humans.length;
 
-      for (let i = 0; i < botCount; i++) {
-        r.players.push({
-          id: 'bot-' + id(),
-          name: 'Komputer ' + (i + 1),
-          ready: true,
-          host: false,
-          connected: false,
-          ws: null,
-          isBot: true
-        });
-      }
+  for (let i = 0; i < botCount; i++) {
+    r.players.push({
+      id: 'bot-' + id(),
+      name: 'Komputer ' + (i + 1),
+      ready: true,
+      host: false,
+      connected: false,
+      ws: null,
+      isBot: true
+    });
+  }
 
-      r.started = true;
-      r.turnIndex = 0;
+  // Mulai permainan
+  r.started = true;
+  r.turnIndex = 0;
 
-      broadcast(r, {
-        type: 'info',
-        message: 'Permainan dimulai! 4 kursi: ' +
-          humans.length + ' manusia + ' +
-          botCount + ' komputer. Batas giliran 60 detik.'
-      });
+  broadcast(r, {
+    type: 'info',
+    message:
+      'PERMAINAN DIMULAI! ' +
+      humans.length + ' pemain manusia dan ' +
+      botCount + ' komputer. Total 4 pemain.'
+  });
 
-      roomUpdate(r);
-      beginTurn(r);
-      return;
-    }
-
+  roomUpdate(r);
+  beginTurn(r);
+  return;
+}
     if (m.type === 'end_turn') {
       if (
         !r.started ||
