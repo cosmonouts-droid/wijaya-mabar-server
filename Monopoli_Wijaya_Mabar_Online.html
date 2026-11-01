@@ -15,15 +15,27 @@ h1{text-align:center;color:#facc15;margin:8px}
 .subtitle{text-align:center;color:#cbd5e1;font-size:13px;margin-bottom:15px}
 .panel{max-width:760px;margin:10px auto;background:#1e3a2f;padding:12px;border-radius:12px}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.player{padding:9px;background:#294b3b;border-radius:8px;font-size:13px;position:relative;overflow:hidden}
-.player-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.player details{margin-top:7px;border-top:1px solid #547361;padding-top:6px}
-.player summary{cursor:pointer;color:#facc15;font-weight:800;list-style:none;text-align:center;padding:5px;border-radius:6px;background:#365b47}
+.player{padding:0;background:linear-gradient(145deg,#294b3b,#203d30);border:1px solid #668b72;border-radius:14px;font-size:13px;position:relative;overflow:hidden;box-shadow:0 4px 12px #0004;transition:transform .16s,border-color .16s}
+.player-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+.player-head{background:linear-gradient(110deg,#294b3b,#315b43);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:66px}
+.player-head strong{display:block;margin:0;font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.player-money{font-weight:900;color:#a7f3d0;white-space:nowrap;font-size:14px;text-shadow:0 1px 2px #0005}
+
+.player details{margin:0;border-top:1px solid #547361}
+.player summary{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;color:#fef3c7;font-weight:850;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:56px;padding:12px 14px;background:linear-gradient(110deg,#365b47,#416b54);text-align:left;font-size:14px;touch-action:manipulation;border-radius:0 0 12px 12px}
+.player summary:active{background:#527c60;transform:scale(.99)}
+.player summary span:first-child{display:flex;align-items:center;gap:8px}
+.player summary span:last-child{font-size:11px!important;color:#d1fae5!important;font-weight:700!important;white-space:nowrap}
 .player summary::-webkit-details-marker{display:none}
-.player-detail{margin-top:7px;padding:8px;background:#1e3a2f;border-radius:7px;line-height:1.55;overflow-wrap:anywhere}
+.player summary::after{content:'＋';font-size:19px;line-height:1;font-weight:900}
+.player details[open] summary::after{content:'−'}
+.player-detail{margin:0;padding:12px 14px 14px;background:#193629;line-height:1.6;overflow-wrap:anywhere;animation:playerDetailIn .2s ease-out}
+@keyframes playerDetailIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.player-detail>div{padding:5px 0;border-bottom:1px solid #385b48}
+.player-detail>div:last-child{border-bottom:0}
 .player-detail b{color:#fde68a}
-.player-property{display:block;padding:3px 0;border-bottom:1px solid #476454}
-@media(max-width:480px){.player-list{grid-template-columns:1fr}.player{padding:8px}}
+.player-property{display:block;padding:5px 7px;margin:5px 0 0;border-radius:6px;background:#294b3b;border:0}
+@media(max-width:600px){.player-list{grid-template-columns:1fr;gap:10px}.player-head{min-height:68px;padding:13px 14px}.player-head strong{font-size:16px}.player-money{font-size:15px}.player summary{min-height:60px;padding:14px;font-size:14px}.player-detail{padding:12px 14px 14px}.player-detail>div{padding:7px 0}}
 .player.bankrupt-player{filter:saturate(.45);opacity:.62}
 .player.bankrupt-player::after{content:"BANGKRUT";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-12deg);font-size:clamp(22px,5vw,38px);font-weight:1000;letter-spacing:2px;color:#fecaca;opacity:.62;text-shadow:0 2px 5px #450a0a;white-space:nowrap;pointer-events:none;z-index:3}
 .player strong{display:block;margin-bottom:5px}
@@ -122,7 +134,8 @@ body.mabar-online #gameMenu,
 body.mabar-online #aiDifficultyWrap {display:none !important}
 body.mabar-online #mabarBotDifficulty,
 body.mabar-online label[for="mabarBotDifficulty"] {display:none !important}
-body.mabar-online #dice.mabar-dice-roll {animation:mabarDiceShake .11s linear infinite}
+body.mabar-online #dice.mabar-dice-roll {animation:mabarDiceShake .10s linear infinite;display:inline-block;min-width:190px;padding:8px 14px;border:2px solid #facc15;border-radius:14px;background:linear-gradient(135deg,#294b3b,#476b3d);box-shadow:0 0 22px #facc1570;color:#fff7cc}
+@keyframes diceResultPop{0%{transform:scale(.75);filter:brightness(1)}65%{transform:scale(1.18);filter:brightness(1.6)}100%{transform:scale(1);filter:brightness(1)}}#dice.dice-result-pop{animation:diceResultPop .38s ease-out}
 @keyframes mabarDiceShake {
   0%{transform:rotate(-9deg) scale(1)}
   50%{transform:rotate(9deg) scale(1.12)}
@@ -134,6 +147,46 @@ body.mabar-online .tile.mabar-event-flash {animation:mabarTileFlash .55s ease-in
   50%{filter:brightness(1.9) saturate(1.5);box-shadow:0 0 16px #facc15}
 }
 
+
+/* Tata letak papan dan pemain: petak lebih besar, area tengah lebih ringkas */
+.board-wrap{max-width:960px;width:100%;overflow-x:auto;overscroll-behavior-x:contain;padding:0 2px}
+.board{width:100%;min-width:0}
+.tile{padding:5px;font-size:clamp(10px,1.45vw,16px);line-height:1.18}
+.tile .name{font-size:inherit;line-height:1.18;-webkit-line-clamp:5;overflow-wrap:anywhere}
+.tile .price{font-size:clamp(8px,1.05vw,12px);line-height:1.12}
+.tile .band{height:14%;min-height:7px}
+.tile .tokens{font-size:clamp(13px,1.8vw,20px);line-height:1.2}
+.tile .owner-mark{width:20px;height:20px;font-size:11px;line-height:16px}
+.center{inset:14%;padding:7px;font-size:clamp(9px,1.5vw,13px)}
+#propertyInfo{min-height:0}
+#boardInfo{max-height:34%;font-size:clamp(8px,1vw,10px);padding:5px}
+.stats{gap:6px}
+.player-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.player{border-radius:10px;font-size:11px}
+.player-head{min-height:48px;padding:7px 8px;gap:5px}
+.player-head strong{font-size:12px;line-height:1.15;margin:0;overflow-wrap:anywhere}
+.player-money{font-size:11px;white-space:normal;text-align:right;line-height:1.15}
+.player summary{min-height:37px;padding:7px 8px;font-size:10px;gap:4px}
+.player summary span:last-child{font-size:9px!important}
+.player summary::after{font-size:15px}
+.player-detail{padding:7px 8px;font-size:10px;line-height:1.4}
+.player-detail>div{padding:4px 0}
+.player-property{padding:4px 5px;margin-top:3px}
+@media(max-width:600px){
+ .board-wrap{max-width:100%;overflow-x:auto;padding-bottom:5px}
+ .board{width:720px;max-width:none}
+ .center{inset:14%;padding:5px;border-width:2px}
+ #boardInfo{max-height:34%;padding:3px;font-size:8px}
+ .player-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ .player-head{min-height:44px;padding:6px}
+ .player-head strong{font-size:11px}
+ .player-money{font-size:10px}
+ .player summary{min-height:36px;padding:6px;font-size:9px}
+ .player summary span:last-child{font-size:8px!important}
+ .player-detail{padding:6px;font-size:9px}
+ .player-detail>div{padding:3px 0}
+}
+@media(max-width:380px){.board{width:680px}.player-head{align-items:flex-start;flex-direction:column;gap:3px}.player-money{text-align:left}}
 </style>
 </head>
 <body>
@@ -728,10 +781,9 @@ function render(){
    const t=tiles[tileIndex]||originalTiles[tileIndex];
    return `<span class="player-property">🏠 ${t?.n||t?.name||("Petak "+(tileIndex+1))} — ⭐ ${tiles[tileIndex]?.stars||0} — ${money(saleValue(tileIndex))}</span>`;
   }).join("")||'<span class="small">Belum memiliki properti.</span>';
-  return `<div class="player ${p.bankrupt?'bankrupt-player':''}" style="border-left:5px solid ${colors[i]}">
-   <strong>${p.name}${i===current?" ◀":""}</strong>
-   <div>💰 ${money(p.cash)}</div>
-   <details><summary>▼ Ketuk untuk informasi pemain</summary>
+  return `<div class="player ${p.bankrupt?'bankrupt-player':''}" style="border-top:4px solid ${colors[i]}">
+   <div class="player-head"><strong>${p.name}${i===current?" ◀":""}</strong><span class="player-money">💰 ${money(p.cash)}</span></div>
+   <details><summary><span>📋 Lihat informasi pemain</span><span style="font-size:11px;color:#d1fae5;font-weight:600">Ketuk untuk buka</span></summary>
     <div class="player-detail">
      <div><b>💎 Total aset:</b> ${money(assets(p))}</div>
      <div><b>🏠 Properti (${p.owned?.length||0}):</b>${ownedList}</div>
@@ -1560,6 +1612,20 @@ async function aiTurn(){
  const a=Math.floor(Math.random()*6)+1;
  const b=Math.floor(Math.random()*6)+1;
  const total=a+b;
+ const aiDiceEl=document.getElementById("dice");
+ if(aiDiceEl){
+  aiDiceEl.classList.add("dice-shaking");
+  for(let k=0;k<14;k++){
+   const ra=1+Math.floor(Math.random()*6),rb=1+Math.floor(Math.random()*6);
+   aiDiceEl.textContent=dieSymbol(ra)+"  +  "+dieSymbol(rb);
+   sfx("dice");
+   await new Promise(resolve=>setTimeout(resolve,85));
+  }
+  aiDiceEl.classList.remove("dice-shaking");
+  aiDiceEl.textContent=dieSymbol(a)+"  +  "+dieSymbol(b)+" = "+total;
+  aiDiceEl.classList.add("dice-result-pop");
+  setTimeout(()=>aiDiceEl.classList.remove("dice-result-pop"),420);
+ }
 
  if(p.jail>0){
   if((p.specialCards||0)>0&&!specialUsedThisTurn&&Math.random()<aiSetting().jailCardChance){
@@ -1591,8 +1657,6 @@ async function aiTurn(){
    say("🎉 "+p.name+" mendapatkan DOUBLE dan bebas!");
   }
  }
-
- document.getElementById("dice").textContent="🎲 "+a+" + "+b+" = "+total;
 
  await animateMove(p,total);
  await land(current,total);
@@ -2090,17 +2154,21 @@ async function animateMabarRemoteDice(finalText){
  const id=++mabarDiceAnimationId;
  const el=document.getElementById("dice");
  if(!el)return;
+ el.classList.remove("dice-shaking");
  el.classList.add("mabar-dice-roll");
- for(let k=0;k<12;k++){
+ el.textContent="🎲 Mengocok dadu...";
+ for(let k=0;k<18;k++){
   if(id!==mabarDiceAnimationId)return;
   const a=1+Math.floor(Math.random()*6),b=1+Math.floor(Math.random()*6);
-  el.textContent=dieSymbol(a)+" + "+dieSymbol(b);
+  el.textContent=dieSymbol(a)+"  +  "+dieSymbol(b);
   sfx("dice");
-  await new Promise(resolve=>setTimeout(resolve,85));
+  await new Promise(resolve=>setTimeout(resolve,90));
  }
  if(id!==mabarDiceAnimationId)return;
  el.textContent=finalText||"🎲";
  el.classList.remove("mabar-dice-roll");
+ el.classList.add("dice-result-pop");
+ setTimeout(()=>{if(id===mabarDiceAnimationId)el.classList.remove("dice-result-pop");},420);
 }
 
 function playMabarLogEffects(entries){
@@ -2169,7 +2237,7 @@ function mabarApplyState(d){
   const pauseBtn=document.getElementById("pauseBtn");if(pauseBtn)pauseBtn.textContent=gamePaused?"▶ Lanjutkan Game":"⏸ Pause Game";
   const dice=document.getElementById("dice");
   const nextDiceText=d.diceText||"🎲";
-  const diceChanged=mabarLastDiceText!==null&&nextDiceText!==mabarLastDiceText;
+  const diceChanged=mabarLastDiceText!==null&&nextDiceText!==mabarLastDiceText&&/\d/.test(nextDiceText)&&!!d.rolled;
   if(dice)dice.textContent=nextDiceText;
   const history=document.getElementById("log");if(history){history.innerHTML="";(d.logEntries||[]).slice().reverse().forEach(msg=>log(msg));}
   render();
