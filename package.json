@@ -1,8 +1,8 @@
 {
-  "name": "monopoli-wijaya-mabar",
-  "version": "3.0.0",
+  "name": "monopoli-wijaya-server-authoritative",
+  "version": "4.1.0",
   "private": true,
-  "description": "Monopoli Wijaya multiplayer with bot lobby and shared-state controller failover",
+  "description": "Monopoli Wijaya server-authoritative multiplayer game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

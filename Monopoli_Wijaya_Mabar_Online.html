@@ -404,7 +404,7 @@ let players=[];
 let current=0,rolled=false,busy=false,gameOver=false;
 let mabarNetworkMode=false,mabarNetworkHost=false,mabarMySeat=0,mabarRemoteAction=false,mabarApplyingState=false;
 function mabarCanControl(){return current===mabarMySeat||(mabarNetworkHost&&mabarRemoteAction);}
-function mabarRequest(action){return !!(mabarNetworkMode&&!mabarNetworkHost&&window.WijayaMabar&&window.WijayaMabar.requestAction(action));}
+function mabarRequest(action,extra={}){if(!mabarNetworkMode)return false;if(window.WijayaMabar&&window.WijayaMabar.requestAction)window.WijayaMabar.requestAction(action,{selected:Number.isInteger(selected)?selected:null,...extra});return true;}
 function mabarPublishState(data){if(mabarNetworkMode&&mabarNetworkHost&&!mabarApplyingState&&window.WijayaMabar&&window.WijayaMabar.publishState)window.WijayaMabar.publishState(data);}
 
 let selected=null,landedIndex=null,upgradeUsedThisTurn=false,debt=false,specialUsedThisTurn=false,special3Mode="",special5Mode="";
@@ -934,6 +934,7 @@ function specialForPayment(playerIndex,reason,amount,to=null){
 }
 
 function resolveSpecialPayment(useCard){
+ if(mabarNetworkMode){mabarRequest(useCard?"use_special_card":"pay_pending");return;}
  const pending=pendingSpecialPayment;
  if(!pending||pending.playerIndex!==0)return;
  pendingSpecialPayment=null;
@@ -1108,6 +1109,7 @@ function destroyRandomProperties(pi){
 }
 
 function chooseSpecial5Target(index){
+ if(mabarNetworkMode){mabarRequest("special5_target",{target:index});return;}
  if(current!==0||special5Mode!=="target")return;
  const p=players[index];
  if(!p||p.bankrupt||p.owned.length===0){say("Pemain itu tidak memiliki aset untuk dipilih. Silakan pilih pemain lain.");render();return;}
@@ -1166,6 +1168,10 @@ function goldDiceReward(pi,value){
 }
 
 function chooseSpecial3Mode(mode){
+ if(mabarNetworkMode){
+  if(mode==="cancel"){mabarRequest("cancel_choice");return;}
+  special3Mode=mode;render();return;
+ }
  if(current!==0||special3Mode!=="menu")return;
  if(mode==="cancel"){
   special3Mode="";
@@ -1187,6 +1193,10 @@ function chooseSpecial3Mode(mode){
 }
 
 function completeSpecial3TileChoice(i){
+ if(mabarNetworkMode){
+  mabarRequest(special3Mode==="owned"?"special3_owned":"special3_empty",{selected:i});
+  special3Mode="";return;
+ }
  const p=players[0],t=tiles[i],owner=ownerOf(i);
  if(special3Mode==="owned"){
   if(!["street","rail","utility"].includes(t.type)||owner<0||owner===0){say("Pilih petak properti milik pemain lain.");render();return;}
@@ -1903,6 +1913,7 @@ function loadGame(){
 }
 
 function sellSpecialCard(){
+ if(mabarNetworkMode){mabarRequest("sell_special_card");return;}
  const p=players[0];
  if(pendingSpecialPayment){say("Pilih gunakan Kartu Spesial atau bayar normal terlebih dahulu. Kartu tidak dapat dijual saat keputusan petak masih berlangsung.");return;}
  if(!p||(p.specialCards||0)<=0){say("Kamu tidak memiliki Kartu Spesial untuk dijual.");return;}
@@ -1965,10 +1976,22 @@ document.getElementById("aiDifficulty").addEventListener("change",ev=>{
  saveGame(false);
 });
 setAIDifficulty(aiDifficulty);
+
+function lockLocalOnlyControls(){
+ ['saveBtn','loadBtn','pauseBtn','newBtn','borrowToPayBtn'].forEach(id=>{
+  const el=document.getElementById(id);if(el)el.disabled=true;
+ });
+ document.querySelectorAll('[data-special3], [data-special5-target]').forEach(el=>el.disabled=true);
+ const special=document.getElementById('specialIntentText');if(special)special.style.pointerEvents='auto';
+ const pay=document.getElementById('payNormallyBtn');if(pay)pay.disabled=false;
+ const sell=document.getElementById('sellSpecialCardBtn');if(sell)sell.disabled=false;
+}
+
 function mabarSetupGame(roomPlayers, seat, isHost){
  mabarNetworkMode=false;mabarNetworkHost=!!isHost;mabarMySeat=Number(seat)||0;mabarRemoteAction=false;
  newGame();
  mabarNetworkMode=true;
+ lockLocalOnlyControls();
  const base=freshPlayers();
  const sorted=(roomPlayers||[]).slice().sort((a,b)=>a.seatIndex-b.seatIndex);
  players=base.map((p,i)=>{
@@ -2109,7 +2132,7 @@ document.addEventListener("pointerdown", function(event) {
 <div id="mabarModal" role="dialog" aria-modal="true" aria-labelledby="mabarTitle">
  <div class="mabar-card">
   <h2 id="mabarTitle">🌐 MABAR ONLINE WIJAYA</h2>
-  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 peserta. Host dapat menambahkan 1–3 bot yang langsung siap, lalu mulai tanpa menunggu pemain lain.</p>
+  <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 peserta. Host dapat menambahkan 1–3 bot. Setelah mulai, server mengendalikan seluruh giliran dan permainan tetap berjalan tanpa Host.</p>
   <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" value="" placeholder="wss://alamat-server-anda" autocomplete="url">
   <label>Nama pemain</label><input id="mabarName" class="mabar-field" maxlength="18" placeholder="Nama kamu">
   <div class="mabar-actions"><button id="mabarCreate" class="mabar-primary">BUAT ROOM</button><button id="mabarJoin" class="mabar-secondary">GABUNG ROOM</button></div>
@@ -2124,20 +2147,20 @@ document.addEventListener("pointerdown", function(event) {
 </div>
 <script>
 (function(){
- const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false,lastRevision=0;
+ const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false,lastRevision=0,resumeToken=null;
  const modal=$('mabarModal'),status=$('mabarStatus'),roster=$('mabarRoster');
  // Gunakan host/domain halaman ini agar tombol lobi tidak tersambung ke server lama.
  if(!$('mabarServer').value.trim()) $('mabarServer').value=(location.protocol==='https:'?'wss://':'ws://')+location.host;
  function say(t){status.textContent=t}
  function send(type,data={}){if(!ws||ws.readyState!==WebSocket.OPEN){say('Belum tersambung ke server.');return false;}ws.send(JSON.stringify({type,...data}));return true;}
- function requestAction(action){if(!ws||ws.readyState!==WebSocket.OPEN||!room?.started||isHost)return false;send('player_action',{action,revision:lastRevision,selected:Number.isInteger(window.WijayaMabarSelected)?window.WijayaMabarSelected:null});return true;}
+ function requestAction(action,extra={}){if(!ws||ws.readyState!==WebSocket.OPEN||!room?.started)return false;send('player_action',{action,revision:lastRevision,selected:Number.isInteger(window.WijayaMabarSelected)?window.WijayaMabarSelected:null,...extra});return true;}
  function publishState(state){if(isHost&&room?.started)send('game_state',{state,baseRevision:lastRevision});}
  function updateStart(r){const humans=(r.players||[]).filter(p=>!p.isBot&&p.ready).length;const bots=(r.players||[]).filter(p=>p.isBot).length;$('mabarStart').disabled=role!=='host'||!!r.started||humans<1||(humans<2&&bots<1)||humans+bots<2;$('mabarAddBot').disabled=role!=='host'||!!r.started||bots>=3||(r.players||[]).length>=4;}
  function render(r){const humans=(r.players||[]).filter(p=>!p.isBot).length;const bots=(r.players||[]).filter(p=>p.isBot).length;roster.innerHTML='<b>Daftar Room</b><div class="mabar-small">Pemain manusia: '+humans+' • Bot siap: '+bots+' • Total: '+(r.players||[]).length+'/4</div>';const list=[...(r.players||[]).map(p=>({...p,kind:p.isBot?'Bot':'Pemain'})),...(r.spectators||[]).map(p=>({...p,kind:'Penonton'}))];list.forEach(p=>{const d=document.createElement('div');d.className='mabar-player';const a=document.createElement('span');a.textContent=(p.name||'Pemain')+(p.host?' 👑':'');const b=document.createElement('span');b.textContent=p.kind+(p.kind==='Bot'?' • Siap':(p.kind==='Pemain'?(p.ready?' • Siap':' • Belum siap'):''));d.append(a,b);roster.append(d)});}
  function handleMessage(m){
   if(m.type==='error'){say(m.message||'Terjadi kesalahan.');return;}
   if(m.type==='room'||m.type==='room_update'){
-   room=m.room; if(m.type==='room'){role=m.role||role;playerId=m.playerId||playerId;mySeat=role==='spectator'?-1:Number(m.seatIndex??room.players.find(p=>p.id===playerId)?.seatIndex??0);isHost=role==='host';if(room.started)mabarNetworkMode=true;}
+   room=m.room; if(m.type==='room'){role=m.role||role;playerId=m.playerId||playerId;resumeToken=m.resumeToken||resumeToken;if(resumeToken&&room.code)localStorage.setItem('wijaya-resume-'+room.code,resumeToken);mySeat=role==='spectator'?-1:Number(m.seatIndex??room.players.find(p=>p.id===playerId)?.seatIndex??0);isHost=role==='host';if(room.started)mabarNetworkMode=true;}
    ready=!!room.players.find(p=>p.id===playerId)?.ready;$('mabarCode').value=room.code;say('Room '+room.code+' • '+(room.started?'Permainan berlangsung':'Menunggu pemain')+'\nPeserta: '+room.players.length+'/4 • Bot siap: '+(room.botCount||0));render(room);
    $('mabarReady').disabled=role==='spectator'||role==='host'||room.started;$('mabarReady').textContent=role==='host'?'HOST SIAP':(ready?'BATAL SIAP':'SIAP');updateStart(room);return;
   }
@@ -2145,33 +2168,26 @@ document.addEventListener("pointerdown", function(event) {
    room={...(room||{}),started:true,players:m.players||room?.players||[]};
    modal.classList.remove('open');
    mabarNetworkMode=true;
-   mabarNetworkHost=!!isHost;
+   mabarNetworkHost=false;
    lastRevision=0;
    const mine=(m.players||[]).find(p=>p.id===playerId);
    mySeat=mine?Number(mine.seatIndex):(role==='spectator'?-1:0);
-   // Semua perangkat wajib masuk ke papan yang sama; hanya pengendali yang
-   // menjalankan logika permainan dan meneruskan aksi ke server.
-   window.WijayaMabarGame.setup(m.players||[],mySeat,!!isHost);
-   say(isHost?'Permainan dimulai. Papan bersama aktif.':'Permainan dimulai. Papan bersama aktif. Menunggu giliran kamu.');
+   window.WijayaMabarGame.setup(m.players||[],mySeat,false);
+   say('Permainan dimulai. Server mengendalikan papan bersama.');
    return;
   }
-  if(m.type==='host_action'){
-   if(isHost)window.WijayaMabarGame.hostAction(m.action,m.seatIndex,m.selected);return;
-  }
-  if(m.type==='host_turn_timeout'){if(isHost)window.WijayaMabarGame.timeoutTurn(m.seatIndex);return;}
-  if(m.type==='controller_changed'){isHost=true;lastRevision=Number(m.revision)||0;if(m.state)window.WijayaMabarGame.takeController(m.state);else window.WijayaMabarGame.setup(room?.players||[],mySeat,true);say(m.message||'Perangkat ini mengambil alih pengendalian permainan.');return;}
-  if(m.type==='controller_state'){lastRevision=Number(m.revision)||lastRevision;window.WijayaMabarGame.takeController(m.state);say(m.message||'Status papan diperbarui server.');return;}
-  if(m.type==='controller_status'){if(!isHost)say(m.message||('Pengendali aktif: '+(m.playerName||'belum ada')));return;}
+  if(m.type==='host_action'||m.type==='host_turn_timeout'||m.type==='controller_changed'||m.type==='controller_state'||m.type==='controller_status')return;
   if(m.type==='game_state'){
    lastRevision=Number(m.revision)||lastRevision;
-   if(!isHost)window.WijayaMabarGame.applyState(m.state);
+   mabarNetworkMode=true;mabarNetworkHost=false;
+   window.WijayaMabarGame.applyState(m.state);
    const turn=m.turn;if(turn)say('Room '+(room?.code||'')+' • Giliran: '+turn.playerName+(turn.isBot?' (Bot)':''));return;
   }
   if(m.type==='bot_added'){say(m.message||'Bot berhasil ditambahkan dan siap.');return;}
   if(m.type==='info'){say(m.message||'Informasi dari server.');return;}
   if(m.type==='game_event')say('Pembaruan permainan diterima dari server.');
  }
- function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://).');return;}if(!name){say('Masukkan nama pemain terlebih dahulu.');return;}try{ws=new WebSocket(url);}catch(e){say('Alamat server tidak valid.');return;}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.replace(/\D/g,'').slice(0,4)});};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{return;}handleMessage(m);};ws.onclose=()=>{say('Koneksi terputus. Jika Host terputus, pengendali otomatis dipindahkan ke pemain manusia lain yang masih tersambung.');$('mabarReady').disabled=true;$('mabarStart').disabled=true;};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
+ function connect(action){const url=$('mabarServer').value.trim(),name=$('mabarName').value.trim();if(!/^wss?:\/\//i.test(url)){say('Masukkan alamat server WebSocket (ws:// atau wss://).');return;}if(!name){say('Masukkan nama pemain terlebih dahulu.');return;}try{ws=new WebSocket(url);}catch(e){say('Alamat server tidak valid.');return;}say('Menghubungkan ke server...');ws.onopen=()=>{say('Terhubung. Memproses permintaan Room...');send(action,{name,code:$('mabarCode').value.replace(/\D/g,'').slice(0,4),resumeToken:action==='join_room'?localStorage.getItem('wijaya-resume-'+$('mabarCode').value.replace(/\D/g,'').slice(0,4)):null});};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{return;}handleMessage(m);};ws.onclose=()=>{say('Koneksi terputus. Jika Host terputus, pengendali otomatis dipindahkan ke pemain manusia lain yang masih tersambung.');$('mabarReady').disabled=true;$('mabarStart').disabled=true;};ws.onerror=()=>say('Gagal terhubung. Periksa alamat server dan koneksi internet.');}
  $('mabarCode').addEventListener('input',()=>{$('mabarCode').value=$('mabarCode').value.replace(/\D/g,'').slice(0,4);});
  $('openMabar').addEventListener('click',()=>modal.classList.add('open'));$('mabarClose').addEventListener('click',()=>modal.classList.remove('open'));
  $('mabarCreate').addEventListener('click',()=>{role='host';connect('create_room');});$('mabarJoin').addEventListener('click',()=>{role='player';connect('join_room');});$('mabarSpectate').addEventListener('click',()=>{role='spectator';connect('spectate_room');});
