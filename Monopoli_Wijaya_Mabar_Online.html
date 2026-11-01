@@ -2110,7 +2110,7 @@ document.addEventListener("pointerdown", function(event) {
  <div class="mabar-card">
   <h2 id="mabarTitle">🌐 MABAR ONLINE WIJAYA</h2>
   <p class="mabar-small">Main bersama teman melalui internet. Maksimal 4 peserta. Host dapat menambahkan 1–3 bot yang langsung siap, lalu mulai tanpa menunggu pemain lain.</p>
-  <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" value="wss://wijaya-mabar-server-0a541514.enzonic.dev" placeholder="wss://alamat-server-anda" autocomplete="url">
+  <label>Alamat server WebSocket</label><input id="mabarServer" class="mabar-field" value="" placeholder="wss://alamat-server-anda" autocomplete="url">
   <label>Nama pemain</label><input id="mabarName" class="mabar-field" maxlength="18" placeholder="Nama kamu">
   <div class="mabar-actions"><button id="mabarCreate" class="mabar-primary">BUAT ROOM</button><button id="mabarJoin" class="mabar-secondary">GABUNG ROOM</button></div>
   <label>Kode Room</label><input id="mabarCode" class="mabar-field" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" placeholder="Contoh: 4821">
@@ -2126,6 +2126,8 @@ document.addEventListener("pointerdown", function(event) {
 (function(){
  const $=id=>document.getElementById(id);let ws=null,role=null,room=null,ready=false,playerId=null,mySeat=0,isHost=false;
  const modal=$('mabarModal'),status=$('mabarStatus'),roster=$('mabarRoster');
+ // Gunakan host/domain halaman ini agar tombol lobi tidak tersambung ke server lama.
+ if(!$('mabarServer').value.trim()) $('mabarServer').value=(location.protocol==='https:'?'wss://':'ws://')+location.host;
  function say(t){status.textContent=t}
  function send(type,data={}){if(!ws||ws.readyState!==WebSocket.OPEN){say('Belum tersambung ke server.');return false;}ws.send(JSON.stringify({type,...data}));return true;}
  function requestAction(action){if(!ws||ws.readyState!==WebSocket.OPEN||!room?.started||isHost)return false;send('player_action',{action,revision:lastRevision,selected:Number.isInteger(window.WijayaMabarSelected)?window.WijayaMabarSelected:null});return true;}
@@ -2158,6 +2160,7 @@ document.addEventListener("pointerdown", function(event) {
    if(!isHost)window.WijayaMabarGame.applyState(m.state);
    const turn=m.turn;if(turn)say('Room '+(room?.code||'')+' • Giliran: '+turn.playerName+(turn.isBot?' (Bot)':''));return;
   }
+  if(m.type==='bot_added'){say(m.message||'Bot berhasil ditambahkan dan siap.');return;}
   if(m.type==='info'){say(m.message||'Informasi dari server.');return;}
   if(m.type==='game_event')say('Pembaruan permainan diterima dari server.');
  }

@@ -1,8 +1,8 @@
 {
   "name": "monopoli-wijaya-mabar",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "Monopoli Wijaya real-time multiplayer with controller failover",
+  "description": "Monopoli Wijaya multiplayer with bot lobby and shared-state controller failover",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

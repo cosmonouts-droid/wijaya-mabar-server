@@ -1,31 +1,38 @@
-MONOPOLI WIJAYA - REAL-TIME MULTIPLAYER v2.1
+MONOPOLI WIJAYA MABAR - PATCH v3.0.0
+=====================================
+
+PERBAIKAN DARI SCREENSHOT
+- Browser membuka halaman pada domain wijaya-mabar-server.enzonic.dev,
+  tetapi kolom WebSocket masih menunjuk ke domain lama
+  wijaya-mabar-server-0a541514.enzonic.dev.
+- HTML sekarang otomatis mengisi WebSocket dengan domain halaman yang sedang
+  dibuka (wss:// untuk HTTPS). Ini mencegah tombol TAMBAH BOT mengirim perintah
+  ke backend lama.
+- Server v3 mendukung pesan WebSocket add_bot dan mengirim room_update serta
+  konfirmasi bot_added.
+- Maksimal 3 bot dan 4 kursi total. Bot langsung ready.
+- Endpoint /health menunjukkan protocolVersion dan fitur add_bot.
 
 ISI PAKET
-- server.js: WebSocket server, Room, state snapshot, turn validation, controller failover
-- Monopoli_Wijaya_Mabar_Online.html: client game with controller handover
-- package.json: dependency dan perintah start
+- server.js
+- Monopoli_Wijaya_Mabar_Online.html
+- package.json
 
 CARA DEPLOY
-1. Upload ketiga file ke folder/root aplikasi yang sama.
-2. Pastikan Node.js tersedia.
-3. Jalankan: npm install
-4. Jalankan: npm start
-5. Deploy/restart service di hosting.
-6. Tes endpoint /health; status harus online.
-7. Buka URL game, buat Room baru, lalu tes dengan dua perangkat/browser.
-
-PERUBAHAN v2.1
-- Jika pengendali/Host terputus saat permainan berlangsung, server memilih pemain manusia lain yang masih terhubung sebagai pengendali baru.
-- Kursi pemain yang terputus diambil alih bot.
-- Server menyimpan snapshot papan terbaru di memori dan mengirimkannya ke pengendali baru.
-- Timer giliran tetap memakai deadline yang sama ketika pengendali berpindah; timer tidak di-reset oleh setiap pembaruan papan.
-- Server tetap memvalidasi siapa yang boleh mengirim aksi dan memastikan aksi hanya diteruskan saat giliran pemain tersebut.
-- Kode Room tetap 4 angka dan maksimal 4 kursi.
-
-CATATAN ARSITEKTUR PENTING
-Versi ini adalah tahap failover pengendali dengan snapshot kanonis di server. Logika penuh permainan (perhitungan dadu, gerakan, transaksi, kartu, musibah, dan AI) masih dijalankan di browser pengendali yang aktif, lalu snapshot dikirim ke server untuk dibagikan. Jadi ini BELUM sepenuhnya server-authoritative. Jika semua browser pemain terputus bersamaan atau proses server restart, Room aktif belum dapat dipulihkan. Tahap selanjutnya adalah memindahkan mesin aturan permainan dan AI ke Node.js, serta menambahkan penyimpanan persisten dan mekanisme reconnect bertoken.
+1. Upload ketiga file ke direktori aplikasi yang sama.
+2. Pastikan nama file HTML tepat: Monopoli_Wijaya_Mabar_Online.html
+3. Jalankan npm install.
+4. Jalankan npm start (atau perintah start yang disediakan hosting).
+5. Restart/redeploy service.
+6. Buka https://wijaya-mabar-server.enzonic.dev/health
+   Pastikan protocolVersion bernilai 3.0.0 dan features mencakup add_bot.
+7. Buka halaman utama, buat Room baru, lalu tekan TAMBAH BOT.
+8. Pastikan daftar Room menampilkan Bot 1 • Siap.
 
 PENTING
-- Gunakan Room baru setelah deploy.
-- Semua pemain harus menggunakan URL server WebSocket yang sama.
-- Host/pengendali harus online selama ada aksi manusia; jika ia terputus, pemain lain yang online otomatis mengambil alih.
+- Jangan hanya mengganti HTML. server.js juga wajib diperbarui karena perintah
+  add_bot diproses di server.
+- Setelah deploy, gunakan domain halaman yang sama untuk WebSocket.
+- Room lama tidak dipakai lagi; buat Room baru.
+- Versi ini masih memakai browser pengendali untuk menjalankan mesin aturan
+  permainan. Ini bukan server-authoritative penuh.

@@ -27,7 +27,10 @@ const server = http.createServer((req, res) => {
       service: 'Monopoli Wijaya Mabar',
       status: 'online',
       multiplayerMode: 'shared-state-controller-failover',
+      protocolVersion: '3.0.0',
+      features: ['add_bot', 'room_update', 'game_state', 'player_action', 'controller_failover'],
       maxSeats: 4,
+      maxBots: 3,
       turnSeconds: TURN_SECONDS
     }));
   }
@@ -198,7 +201,9 @@ wss.on('connection', ws => {
       if(seatIndex>=4)return error(ws,'Room sudah penuh.');
       const n=r.players.filter(x=>x.isBot).length+1;
       r.players.push({id:'bot-'+id(),name:'Bot '+n,ready:true,host:false,connected:false,ws:null,isBot:true,seatIndex});
-      roomUpdate(r); return;
+      roomUpdate(r);
+      send(ws,{type:'bot_added',message:'Bot '+n+' berhasil ditambahkan dan langsung siap.',botCount:r.players.filter(x=>x.isBot).length});
+      return;
     }
     if(m.type==='start_game') {
       if(c.id!==r.hostId)return error(ws,'Hanya Host yang dapat memulai.');
@@ -244,6 +249,9 @@ wss.on('connection', ws => {
     }
     if(m.type==='game_event') {
       if(!r.started)return; broadcast(r,{type:'game_event',playerId:c.id,event:m.event||{}}); return;
+    }
+    if (m.type === 'add_bot' || m.type === 'bot_add') {
+      return error(ws,'Server belum mendukung fitur tambah bot. Deploy server.js versi 3.0.0 lalu restart service.');
     }
     error(ws,'Perintah tidak dikenal.');
   });
