@@ -16,12 +16,24 @@ h1{text-align:center;color:#facc15;margin:8px}
 .panel{max-width:760px;margin:10px auto;background:#1e3a2f;padding:12px;border-radius:12px}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .player{padding:9px;background:#294b3b;border-radius:8px;font-size:13px;position:relative;overflow:hidden}
+.player-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.player details{margin-top:7px;border-top:1px solid #547361;padding-top:6px}
+.player summary{cursor:pointer;color:#facc15;font-weight:800;list-style:none;text-align:center;padding:5px;border-radius:6px;background:#365b47}
+.player summary::-webkit-details-marker{display:none}
+.player-detail{margin-top:7px;padding:8px;background:#1e3a2f;border-radius:7px;line-height:1.55;overflow-wrap:anywhere}
+.player-detail b{color:#fde68a}
+.player-property{display:block;padding:3px 0;border-bottom:1px solid #476454}
+@media(max-width:480px){.player-list{grid-template-columns:1fr}.player{padding:8px}}
 .player.bankrupt-player{filter:saturate(.45);opacity:.62}
 .player.bankrupt-player::after{content:"BANGKRUT";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-12deg);font-size:clamp(22px,5vw,38px);font-weight:1000;letter-spacing:2px;color:#fecaca;opacity:.62;text-shadow:0 2px 5px #450a0a;white-space:nowrap;pointer-events:none;z-index:3}
 .player strong{display:block;margin-bottom:5px}
 .board-wrap{max-width:760px;margin:12px auto}
 .board{width:100%;aspect-ratio:1;display:grid;grid-template-columns:repeat(11,1fr);grid-template-rows:repeat(11,1fr);gap:2px;background:#d1d5db;padding:3px;border-radius:8px;position:relative}
-.tile{background:#f8fafc;color:#111827;min-width:0;min-height:0;position:relative;display:flex;flex-direction:column;justify-content:space-between;text-align:center;padding:2px;font-size:clamp(6px,1.4vw,11px);overflow:hidden;border:1px solid #64748b;cursor:pointer}
+.tile{background:#f8fafc;color:#111827;min-width:0;min-height:0;position:relative;display:flex;flex-direction:column;justify-content:space-between;text-align:center;padding:3px;font-size:clamp(7px,1.65vw,13px);line-height:1.12;overflow:hidden;border:1px solid #64748b;cursor:pointer}
+.tile .name{font-size:inherit;line-height:1.12;overflow-wrap:anywhere;word-break:normal;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.tile .price{font-size:clamp(6px,1.25vw,10px);line-height:1.05}
+.tile .band{height:15%;min-height:4px}
+.tile .tokens{font-size:clamp(10px,2vw,16px);line-height:1.15}
 .tile.selected{outline:3px solid #facc15;z-index:2}
 .tile.debt-sellable{outline:3px dashed #f59e0b;z-index:3;cursor:pointer;animation:debtPulse 1s ease-in-out infinite alternate}
 @keyframes debtPulse{from{filter:brightness(1)}to{filter:brightness(1.35)}}
@@ -52,7 +64,9 @@ button{border:0;border-radius:8px;padding:12px 16px;font-weight:bold;margin:4px;
 button:disabled{opacity:.4;cursor:not-allowed}
 #rollBtn{font-size:18px;background:#22c55e;color:#052e16;min-width:190px}
 #freeMoveBtn{background:#38bdf8;color:#082f49}
-#dice{font-size:27px;margin:8px;font-weight:bold}#dice.special-dice-roll{animation:dicePulse .18s infinite alternate;text-shadow:0 0 12px #facc15}@keyframes dicePulse{from{transform:rotate(-5deg) scale(1)}to{transform:rotate(5deg) scale(1.12)}}
+#dice{font-size:27px;margin:8px;font-weight:bold;min-height:42px}
+#dice.dice-shaking{animation:diceRollShake .09s linear infinite;text-shadow:0 0 14px #facc15}
+@keyframes diceRollShake{0%{transform:rotate(-12deg) translateY(0) scale(1)}50%{transform:rotate(12deg) translateY(-3px) scale(1.13)}100%{transform:rotate(-12deg) translateY(0) scale(1)}}#dice.special-dice-roll{animation:dicePulse .18s infinite alternate;text-shadow:0 0 12px #facc15}@keyframes dicePulse{from{transform:rotate(-5deg) scale(1)}to{transform:rotate(5deg) scale(1.12)}}
 #turnInfo{font-size:20px;font-weight:900;color:#facc15;margin:-5px 0 3px;letter-spacing:.2px}
 #status{min-height:42px;background:#294b3b;padding:10px;border-radius:8px;margin:8px 0}
 .actions{display:flex;flex-wrap:wrap;justify-content:center}
@@ -653,6 +667,7 @@ function buildBoard(){
  render();
 }
 
+let mabarVisualPositions=null;
 function render(){
  updateMusicTheme();
  const legend=document.getElementById("playerLegend");
@@ -700,24 +715,35 @@ function render(){
 
  players.forEach((p,pi)=>{
   if(p.bankrupt)return;
-  const tile=els[p.pos];
+  const visualPos=Array.isArray(mabarVisualPositions)&&Number.isInteger(mabarVisualPositions[pi])?mabarVisualPositions[pi]:p.pos;
+   const tile=els[visualPos];
   if(tile){
    const tok=tile.querySelector(".tokens");
    tok.textContent+=(tok.textContent?" ":"")+tokens[pi];
   }
  });
 
- document.getElementById("stats").innerHTML=players.map((p,i)=>`
-  <div class="player ${p.bankrupt?'bankrupt-player':''}" style="border-left:5px solid ${colors[i]}">
+ document.getElementById("stats").innerHTML=`<div class="player-list">${players.map((p,i)=>{
+  const ownedList=(p.owned||[]).map(tileIndex=>{
+   const t=tiles[tileIndex]||originalTiles[tileIndex];
+   return `<span class="player-property">🏠 ${t?.n||t?.name||("Petak "+(tileIndex+1))} — ⭐ ${tiles[tileIndex]?.stars||0} — ${money(saleValue(tileIndex))}</span>`;
+  }).join("")||'<span class="small">Belum memiliki properti.</span>';
+  return `<div class="player ${p.bankrupt?'bankrupt-player':''}" style="border-left:5px solid ${colors[i]}">
    <strong>${p.name}${i===current?" ◀":""}</strong>
-   Uang: ${money(p.cash)}<br>
-   Aset: ${money(assets(p))}<br>
-   Properti: ${p.owned.length}<br>
-   Pinjaman bank: ${money(p.bankDebt||0)} / Rp2.000.000
-   
-   ${p.jail>0?'<br>🔒 DI PENJARA: percobaan '+((p.jailAttempts||0)+1)+'/3':''}
-   ${p.bankrupt?'<br><strong>💥 BANGKRUT</strong>':''}
-  </div>`).join("");
+   <div>💰 ${money(p.cash)}</div>
+   <details><summary>▼ Ketuk untuk informasi pemain</summary>
+    <div class="player-detail">
+     <div><b>💎 Total aset:</b> ${money(assets(p))}</div>
+     <div><b>🏠 Properti (${p.owned?.length||0}):</b>${ownedList}</div>
+     <div><b>⭐ Properti bintang 6:</b> ${(p.owned||[]).filter(x=>(tiles[x]?.stars||0)===6).length}</div>
+     <div><b>🏦 Pinjam bank:</b> ${money(p.bankDebt||0)} / Rp2.000.000</div>
+     <div><b>🎴 Kartu spesial:</b> ${p.specialCards||0} kartu${(p.specialCards||0)>0?" • sisa pakai "+(p.specialCardUsesLeft||3)+"/3":""}</div>
+     ${p.jail>0?'<div>🔒 DI PENJARA: percobaan '+((p.jailAttempts||0)+1)+'/3</div>':''}
+     ${p.bankrupt?'<div><strong>💥 BANGKRUT</strong></div>':''}
+    </div>
+   </details>
+  </div>`;
+ }).join("")}</div>`;
 
  const inventory=document.getElementById("specialInventory");
 
@@ -1025,18 +1051,22 @@ function pay(from,to,amount){
  return true;
 }
 
+function dieSymbol(value){
+ const faces=["","⚀","⚁","⚂","⚃","⚄","⚅"];
+ return faces[Math.max(1,Math.min(6,Number(value)||1))];
+}
 async function animateMove(p,steps){
  for(let k=0;k<steps;k++){
   p.pos=(p.pos+1)%40;
   sfx('step');
-
   if(p.pos===0){
    p.cash+=50000;
    say(p.name+" melewati atau berhenti di petak MULAI dan menerima "+money(50000)+".");
   }
-
   render();
-  await new Promise(resolve=>setTimeout(resolve,130));
+  const landed=document.querySelectorAll(".tile")[p.pos];
+  if(landed){landed.classList.remove("mabar-event-flash");void landed.offsetWidth;landed.classList.add("mabar-event-flash");}
+  await new Promise(resolve=>setTimeout(resolve,260));
  }
 }
 
@@ -1368,20 +1398,20 @@ async function rollDice(){
  busy=true;
  render();
 
- document.getElementById("dice").textContent="🎲 Mengocok dadu...";
-
+ const diceEl=document.getElementById("dice");
+ diceEl.textContent="🎲 Mengocok dadu...";
+ diceEl.classList.add("dice-shaking");
  let a=1,b=1;
-
  try{
-  for(let k=0;k<12;k++){
+  for(let k=0;k<16;k++){
    a=Math.floor(Math.random()*6)+1;
    b=Math.floor(Math.random()*6)+1;
-   document.getElementById("dice").textContent="🎲 "+a+" + "+b;
+   diceEl.textContent=dieSymbol(a)+" + "+dieSymbol(b);
    sfx('dice');
-   await new Promise(resolve=>setTimeout(resolve,80));
+   await new Promise(resolve=>setTimeout(resolve,95));
   }
-
-  document.getElementById("dice").textContent="🎲 "+a+" + "+b+" = "+(a+b);
+  diceEl.classList.remove("dice-shaking");
+  diceEl.textContent=dieSymbol(a)+" + "+dieSymbol(b)+" = "+(a+b);
 
   const human=players[current];
 
@@ -1426,6 +1456,7 @@ async function rollDice(){
   console.error(err);
   say("Terjadi kesalahan saat menggerakkan pion.");
  }finally{
+  document.getElementById("dice")?.classList.remove("dice-shaking");
   busy=false;
   render();
   saveGame(false);
@@ -2063,7 +2094,7 @@ async function animateMabarRemoteDice(finalText){
  for(let k=0;k<12;k++){
   if(id!==mabarDiceAnimationId)return;
   const a=1+Math.floor(Math.random()*6),b=1+Math.floor(Math.random()*6);
-  el.textContent="🎲 "+a+" + "+b;
+  el.textContent=dieSymbol(a)+" + "+dieSymbol(b);
   sfx("dice");
   await new Promise(resolve=>setTimeout(resolve,85));
  }
@@ -2097,19 +2128,26 @@ function playMabarLogEffects(entries){
 }
 
 async function animateMabarRemoteMoves(oldPositions,targetPositions){
- // Animasi hanya pada tampilan token. Posisi permainan tidak pernah diputar
- // mundur ke snapshot lama sehingga giliran dan koordinat server tetap konsisten.
+ // Posisi server tetap final; visual pion bergerak satu petak demi satu petak.
  const id=++mabarVisualMoveId,changed=[];
  players.forEach((p,i)=>{
-  if(!p.bankrupt&&Number.isInteger(oldPositions[i])&&Number.isInteger(targetPositions[i])&&oldPositions[i]!==targetPositions[i])changed.push(i);
+  if(!p.bankrupt&&Number.isInteger(oldPositions[i])&&Number.isInteger(targetPositions[i])&&oldPositions[i]!==targetPositions[i]){
+   changed.push({i,steps:(targetPositions[i]-oldPositions[i]+40)%40});
+  }
  });
  if(!changed.length)return;
- const tokens=document.querySelectorAll(".tokens");
- tokens.forEach(el=>{el.classList.remove("token-moving");void el.offsetWidth;el.classList.add("token-moving");});
- sfx("step");
- await new Promise(resolve=>setTimeout(resolve,260));
- if(id!==mabarVisualMoveId)return;
- tokens.forEach(el=>el.classList.remove("token-moving"));
+ mabarVisualPositions=oldPositions.slice();
+ render();
+ for(const move of changed){
+  for(let n=0;n<move.steps;n++){
+   if(id!==mabarVisualMoveId)return;
+   mabarVisualPositions[move.i]=(mabarVisualPositions[move.i]+1)%40;
+   sfx("step");
+   render();
+   await new Promise(resolve=>setTimeout(resolve,250));
+  }
+ }
+ if(id===mabarVisualMoveId){mabarVisualPositions=null;render();}
 }
 function mabarApplyState(d){
  if(!d||!Array.isArray(d.players)||d.players.length!==4)return;
@@ -2119,6 +2157,7 @@ function mabarApplyState(d){
  mabarApplyingState=true;
  try{
   mabarVisualMoveId++;
+  mabarVisualPositions=null;
   players=d.players.map(p=>({...p}));current=Number.isInteger(d.current)?d.current:0;rolled=!!d.rolled;gameOver=!!d.gameOver;
   availableSpecialCards=Number.isInteger(d.availableSpecialCards)?d.availableSpecialCards:3;
   disasterCounts=d.disasterCounts||{storm:0,earthquake:0};disasterUnlocked=d.disasterUnlocked||{storm:false,earthquake:false};
