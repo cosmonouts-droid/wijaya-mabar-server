@@ -189,6 +189,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
  <div id="debtChoicePanel" style="display:none;margin:12px auto;padding:12px;background:#422b18;border:2px solid #f59e0b;border-radius:10px;max-width:560px;text-align:left">
   <div style="font-weight:bold;color:#fde68a;margin-bottom:7px">💰 UANG TIDAK CUKUP — PILIH PROPERTI DI PAPAN UNTUK DIJUAL</div>
   <div id="debtChoiceText" class="small" style="line-height:1.6;color:#fff"></div>
+  <button id="debtAuctionModeBtn" type="button" style="background:#f59e0b;color:#422006;margin-top:9px">🔨 Pilih Properti untuk Dilelang</button>
   <button id="borrowToPayBtn" type="button" style="background:#fbbf24;color:#422006;margin-top:9px">🏦 Pinjam Bank & Lanjutkan</button>
  </div>
  <div id="freeUpgradePanel" style="display:none;margin:12px auto;padding:12px;background:#173b2b;border:2px solid #facc15;border-radius:10px;max-width:560px;text-align:left">
@@ -435,6 +436,7 @@ let pendingFreeUpgrade=false;
 let pendingSpecialPayment=null;
 let pendingDebtPayment=null;
 let auction=null,auctionClock=null,auctionBotClock=null;
+let debtSaleMode=false;
 
 function freshPlayers(){
  return [
@@ -628,7 +630,8 @@ function buildBoard(){
     return;
    }
    if(pendingDebtPayment&&pendingDebtPayment.from===0){
-    sellSelectedAssetForDebt(i);
+    if(debtSaleMode)startDebtPropertyAuction(i);
+    else sellSelectedAssetForDebt(i);
     return;
    }
    selected=i;
@@ -728,7 +731,9 @@ function render(){
   if(pendingDebtPayment){
    const dp=players[pendingDebtPayment.from];
    const remaining=Math.max(0,pendingDebtPayment.amount-dp.cash);
-   debtText.innerHTML="Tagihan: <b>"+money(pendingDebtPayment.amount)+"</b><br>Uang tersedia: <b>"+money(dp.cash)+"</b><br>Masih kurang: <b>"+money(remaining)+"</b><br>Ketuk petak properti milikmu di papan untuk menjualnya ke bank. Pinjaman bank maksimal Rp2.000.000.";
+   debtText.innerHTML="Tagihan: <b>"+money(pendingDebtPayment.amount)+"</b><br>Uang tersedia: <b>"+money(dp.cash)+"</b><br>Masih kurang: <b>"+money(remaining)+"</b><br>"+(debtSaleMode?"Mode lelang aktif: ketuk properti milikmu di papan untuk melelangnya kepada pemain lain.":"Ketuk properti milikmu untuk menjual langsung ke Bank, atau aktifkan lelang untuk menawarkan kepada pemain lain.")+" Pinjaman bank maksimal Rp2.000.000.";
+   const auctionModeBtn=document.getElementById("debtAuctionModeBtn");
+   if(auctionModeBtn){auctionModeBtn.textContent=debtSaleMode?"↩ Kembali ke Jual Langsung ke Bank":"🔨 Pilih Properti untuk Dilelang";auctionModeBtn.style.background=debtSaleMode?"#94a3b8":"#f59e0b";}
    const loanBtn=document.getElementById("borrowToPayBtn");loanBtn.style.display="inline-block";
    loanBtn.disabled=dp.bankDebt>=2000000||remaining<=0;
    loanBtn.textContent=dp.bankDebt>=2000000?"🏦 Batas pinjaman Rp2 juta tercapai":"🏦 Pinjam Bank (maks. Rp2 juta) & Lanjutkan";
@@ -856,6 +861,7 @@ function sellAssetForDebt(playerIndex,required,to=null){
  const p=players[playerIndex];
  if(playerIndex===0){
   pendingDebtPayment={from:playerIndex,to,amount:required};
+  debtSaleMode=false;
   debt=true;
   say(p.name+" kekurangan uang untuk membayar "+money(required)+". Pilih petak properti milikmu di papan untuk dijual.");
   render();
@@ -884,6 +890,7 @@ function finishDebtPayment(){
  say(payer.name+" berhasil melunasi pembayaran sebesar "+money(pending.amount)+".");
  pendingDebtPayment=null;
  debt=false;
+ debtSaleMode=false;
  checkVictory();
  render();
  saveGame(false);
@@ -924,6 +931,7 @@ function borrowBankToPay(){
   say("Batas pinjaman bank tidak mencukupi untuk melunasi tagihan. Pemain dinyatakan bangkrut.");
   pendingDebtPayment=null;
   debt=false;
+  debtSaleMode=false;
   declareBankruptcy(p);
   checkVictory();
   render();
@@ -1309,13 +1317,17 @@ function renderAuction(){
  });
  document.getElementById("auctionPassBtn").disabled=auction.passed[0]||auction.highestBidder===0;
 }
-function startManualAuction(){
- if(current!==0||!rolled||busy||gameOver||debt||landedIndex===null)return;
- const index=landedIndex,t=tiles[index];
- if(!["street","rail","utility"].includes(t.type)||ownerOf(index)!==-1)return;
- auction={tileIndex:index,highestBid:0,highestBidder:-1,seconds:30,passed:players.map(p=>!!p.bankrupt)};
+function beginAuction(index,initiator,kind="bank"){
+ const t=tiles[index];
+ if(!t||!["street","rail","utility"].includes(t.type))return false;
+ const owner=ownerOf(index);
+ if(kind==="bank"&&owner!==-1)return false;
+ if(kind==="debt-sale"&&(owner!==initiator||initiator!==0||!pendingDebtPayment))return false;
+ auction={tileIndex:index,highestBid:0,highestBidder:-1,seconds:30,
+  kind, seller:kind==="debt-sale"?initiator:null,initiator,
+  passed:players.map((p,pi)=>!!p.bankrupt||pi===initiator&&kind==="debt-sale")};
  busy=true;
- say("🔨 Lelang "+t.n+" dimulai! Semua pemain aktif boleh menawar. Waktu 30 detik.");
+ say("🔨 "+(kind==="debt-sale"?"Lelang penjualan "+t.n+" untuk melunasi hutang dimulai.":"Lelang "+t.n+" dimulai oleh "+players[initiator].name+".")+" Semua pemain lain boleh menawar. Waktu 30 detik.");
  render();
  auctionClock=setInterval(()=>{
   if(!auction)return;
@@ -1324,6 +1336,26 @@ function startManualAuction(){
   if(auction.seconds<=0)finishAuction();
  },1000);
  auctionBotClock=setInterval(runBotAuctionBid,2400);
+ return true;
+}
+function startManualAuction(){
+ if(current!==0||!rolled||busy||gameOver||debt||landedIndex===null)return;
+ beginAuction(landedIndex,0,"bank");
+}
+function startDebtPropertyAuction(index){
+ if(!pendingDebtPayment||pendingDebtPayment.from!==0||!debtSaleMode)return;
+ if(!players[0].owned.includes(index)){
+  say("Pilih properti milikmu sendiri untuk dilelang.");
+  return;
+ }
+ debtSaleMode=false;
+ beginAuction(index,0,"debt-sale");
+}
+function toggleDebtAuctionMode(){
+ if(!pendingDebtPayment||auction)return;
+ debtSaleMode=!debtSaleMode;
+ say(debtSaleMode?"Mode lelang aktif. Pilih properti milikmu di papan.":"Mode jual langsung ke Bank aktif. Pilih properti milikmu di papan.");
+ render();
 }
 function placeAuctionBid(playerIndex,amount){
  if(!auction||auction.passed[playerIndex])return;
@@ -1379,17 +1411,31 @@ function finishAuction(){
   const winner=players[result.highestBidder];
   if(winner.cash>=result.highestBid&&!winner.bankrupt){
    winner.cash-=result.highestBid;
-   winner.owned.push(index);
-   say("🏆 "+winner.name+" memenangkan lelang "+t.n+" dengan tawaran "+money(result.highestBid)+". Properti resmi menjadi miliknya.");
+   if(result.kind==="debt-sale"){
+    const seller=players[result.seller];
+    seller.owned=seller.owned.filter(i=>i!==index);
+    winner.owned.push(index);
+    seller.cash+=result.highestBid;
+    say("🏆 "+winner.name+" memenangkan lelang "+t.n+" dengan "+money(result.highestBid)+". Uang hasil lelang masuk ke saldo "+seller.name+" untuk melunasi hutang.");
+    if(seller.cash>=pendingDebtPayment.amount)finishDebtPayment();
+    else{debtSaleMode=false;say("Hasil lelang diterima, tetapi hutang masih kurang "+money(pendingDebtPayment.amount-seller.cash)+". Pilih properti lain untuk dijual atau dilelang.");}
+   }else{
+    winner.owned.push(index);
+    say("🏆 "+winner.name+" memenangkan lelang "+t.n+" dengan tawaran "+money(result.highestBid)+". Properti resmi menjadi miliknya.");
+   }
   }else{
    say("Lelang "+t.n+" dibatalkan karena saldo pemenang tidak mencukupi.");
   }
+ }else if(result.kind==="debt-sale"){
+  debtSaleMode=false;
+  say("Lelang "+t.n+" selesai tanpa penawaran. Properti tetap milikmu. Kamu bisa memilih properti lain untuk dilelang atau menjual properti ini langsung ke Bank guna melunasi hutang.");
  }else{
   say("Lelang "+t.n+" selesai tanpa penawaran. Properti tetap milik Bank.");
  }
  busy=false;
  render();
  saveGame(false);
+ if(typeof result.onComplete==="function")result.onComplete();
 }
 
 async function land(pi,roll,fromFreeMove=false){
@@ -1411,7 +1457,14 @@ async function land(pi,roll,fromFreeMove=false){
     p.owned.push(i);
     say("🤖 "+p.name+" secara strategis membeli "+t.n+" seharga "+money(t.p)+".");
    }else if(pi!==0){
-    say("🤖 "+p.name+" memutuskan melewati "+t.n+" untuk menjaga modal.");
+    const wantsAuction=p.cash>=t.p*0.65&&Math.random()<({easy:.20,medium:.42,hard:.62,veryhard:.78}[aiDifficulty]||.42);
+    if(wantsAuction){
+     say("🤖 "+p.name+" menolak harga beli langsung dan membuka lelang untuk "+t.n+".");
+     beginAuction(i,pi,"bank");
+     await new Promise(resolve=>{if(auction)auction.onComplete=resolve;else resolve();});
+    }else{
+     say("🤖 "+p.name+" memutuskan melewati "+t.n+" untuk menjaga modal.");
+    }
    }
   }else if(owner!==pi){
    const amount=rent(i,roll||7);
@@ -2152,6 +2205,7 @@ document.getElementById("aiDifficulty").addEventListener("change",ev=>{
 setAIDifficulty(aiDifficulty);
 document.getElementById("rollBtn").addEventListener("click",rollDice);
 document.getElementById("borrowToPayBtn").addEventListener("click",borrowBankToPay);
+document.getElementById("debtAuctionModeBtn").addEventListener("click",toggleDebtAuctionMode);
 document.getElementById("sellSpecialCardBtn").addEventListener("click",sellSpecialCard);
 document.querySelectorAll("[data-special3]").forEach(btn=>btn.addEventListener("click",()=>chooseSpecial3Mode(btn.dataset.special3)));
 document.getElementById("special5Buttons").addEventListener("click",ev=>{const btn=ev.target.closest("[data-special5-target]");if(btn)chooseSpecial5Target(Number(btn.dataset.special5Target));});
